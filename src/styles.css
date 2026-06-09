@@ -277,7 +277,9 @@ input {
 
 .command-section .el-card__body {
   display: flex;
+  flex-direction: column;
   flex: 1;
+  gap: 12px;
   min-height: 0;
   overflow: hidden;
   padding: clamp(10px, 1.8vh, 16px);
@@ -349,8 +351,80 @@ input {
 }
 
 .command-actions {
+  gap: 4px;
   justify-content: flex-end;
   white-space: nowrap;
+}
+
+.command-run-result {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--devdock-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.run-result-header,
+.run-result-header div {
+  display: flex;
+  align-items: center;
+}
+
+.run-result-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-result-header div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.run-result-header strong,
+.run-result-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-result-header span,
+.run-output span {
+  color: var(--devdock-muted);
+  font-size: 13px;
+}
+
+.run-output-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.run-output {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.run-output pre {
+  min-height: 52px;
+  max-height: 140px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--devdock-border);
+  border-radius: 6px;
+  padding: 10px;
+  background: #f8fafc;
+  color: var(--devdock-text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .command-empty {
@@ -465,5 +539,17 @@ input {
     grid-column: 1 / -1;
     grid-row: 3;
     justify-content: flex-start;
+  }
+
+  .run-result-header,
+  .run-result-header div,
+  .run-output-grid {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .run-result-header,
+  .run-result-header div {
+    flex-direction: column;
   }
 }

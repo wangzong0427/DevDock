@@ -6,7 +6,7 @@ import ConfirmDialog from "./components/ConfirmDialog.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import AdbView from "./features/adb/AdbView.vue";
 import CommandsView from "./features/commands/CommandsView.vue";
-import type { ActiveModule, PathStatus, PlatformInfo, RegisteredCommand } from "./types";
+import type { ActiveModule, CommandRunResult, PathStatus, PlatformInfo, RegisteredCommand } from "./types";
 
 const activeModule = ref<ActiveModule>("commands");
 const platformInfo = ref<PlatformInfo>({ name: "macOS" });
@@ -23,6 +23,8 @@ const isRegistering = ref(false);
 const isRefreshing = ref(false);
 const commandToDelete = ref<RegisteredCommand | null>(null);
 const commands = ref<RegisteredCommand[]>([]);
+const runningCommandName = ref<string | null>(null);
+const lastRunResult = ref<CommandRunResult | null>(null);
 
 const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
 
@@ -151,6 +153,28 @@ function revealCommand(command: RegisteredCommand) {
   pushToast("info", `命令入口：${command.entryPath}`);
 }
 
+async function runCommand(command: RegisteredCommand) {
+  if (runningCommandName.value) return;
+
+  runningCommandName.value = command.name;
+  try {
+    const result = await invoke<CommandRunResult>("run_registered_command", {
+      commandName: command.name,
+    });
+    lastRunResult.value = result;
+
+    if (result.exitCode === 0) {
+      pushToast("success", `${command.name} 执行完成。`);
+    } else {
+      pushToast("error", `${command.name} 执行失败，退出码：${result.exitCode ?? "未知"}。`);
+    }
+  } catch (error) {
+    pushToast("error", `执行失败：${String(error)}`);
+  } finally {
+    runningCommandName.value = null;
+  }
+}
+
 async function deleteCommand() {
   if (!commandToDelete.value) return;
 
@@ -194,9 +218,12 @@ onMounted(() => {
           :path-status="pathStatus"
           :path-tone="pathTone"
           :commands="commands"
+          :running-command-name="runningCommandName"
+          :last-run-result="lastRunResult"
           @register="registerCommand"
           @refresh="refreshCommands"
           @copy-path="copyPathCommand"
+          @run-command="runCommand"
           @reveal-command="revealCommand"
           @request-delete="commandToDelete = $event"
         />

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Refresh } from "@element-plus/icons-vue";
-import type { PathStatus, RegisteredCommand } from "../../types";
+import type { CommandRunResult, PathStatus, RegisteredCommand } from "../../types";
 import CommandList from "./CommandList.vue";
 import PathStatusPanel from "./PathStatusPanel.vue";
 import RegisterCommandPanel from "./RegisterCommandPanel.vue";
@@ -16,6 +16,8 @@ defineProps<{
   pathStatus: PathStatus;
   pathTone: string;
   commands: RegisteredCommand[];
+  runningCommandName: string | null;
+  lastRunResult: CommandRunResult | null;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +26,7 @@ const emit = defineEmits<{
   register: [];
   refresh: [];
   copyPath: [];
+  runCommand: [command: RegisteredCommand];
   revealCommand: [command: RegisteredCommand];
   requestDelete: [command: RegisteredCommand];
 }>();
@@ -57,6 +60,9 @@ const emit = defineEmits<{
 
     <CommandList
       :commands="commands"
+      :running-command-name="runningCommandName"
+      :last-run-result="lastRunResult"
+      @run="emit('runCommand', $event)"
       @reveal="emit('revealCommand', $event)"
       @delete="emit('requestDelete', $event)"
     />

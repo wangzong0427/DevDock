@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -28,6 +29,15 @@ struct RegisteredCommandResponse {
     entry_path: String,
     entry_type: String,
     created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandRunResultResponse {
+    command_name: String,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
 }
 
 #[tauri::command]
@@ -62,6 +72,11 @@ fn list_registered_commands() -> Result<Vec<RegisteredCommandResponse>, String> 
 #[tauri::command(rename_all = "camelCase")]
 fn delete_registered_command(command_name: String) -> Result<(), String> {
     delete_registered_command_in_dir(&command_name, &recommended_bin_dir())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn run_registered_command(command_name: String) -> Result<CommandRunResultResponse, String> {
+    run_registered_command_in_dir(&command_name, &recommended_bin_dir())
 }
 
 fn build_path_status(bin_dir: PathBuf, paths: Vec<PathBuf>) -> PathStatusResponse {
@@ -231,6 +246,33 @@ fn delete_registered_command_in_dir(command_name: &str, bin_dir: &Path) -> Resul
     fs::remove_file(&entry_path).map_err(|error| format!("命令入口删除失败：{error}"))
 }
 
+fn run_registered_command_in_dir(
+    command_name: &str,
+    bin_dir: &Path,
+) -> Result<CommandRunResultResponse, String> {
+    validate_command_name(command_name)?;
+
+    let entry_path = command_entry_path(bin_dir, command_name);
+    if !entry_path.exists() {
+        return Err("命令不存在。".to_string());
+    }
+
+    if read_registered_command(&entry_path)?.is_none() {
+        return Err("不会执行非 DevDock 生成的入口。".to_string());
+    }
+
+    let output = Command::new(&entry_path)
+        .output()
+        .map_err(|error| format!("命令执行失败：{error}"))?;
+
+    Ok(CommandRunResultResponse {
+        command_name: command_name.to_string(),
+        exit_code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 fn metadata_value(content: &str, key: &str) -> Option<String> {
     content.lines().find_map(|line| {
         let normalized = line
@@ -368,7 +410,8 @@ pub fn run() {
             get_path_status,
             register_command,
             list_registered_commands,
-            delete_registered_command
+            delete_registered_command,
+            run_registered_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -576,6 +619,62 @@ mod tests {
 
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn runs_registered_command_and_captures_stdout() {
+        let temp_dir = unique_test_dir("run-stdout");
+        let bin_dir = temp_dir.join("bin");
+        let script_path = temp_dir.join("hello.sh");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(&script_path, "#!/bin/sh\necho hello\n").unwrap();
+        create_registered_command(&script_path, "hello", &bin_dir, "1700000000")
+            .expect("register command");
+
+        let result = run_registered_command_in_dir("hello", &bin_dir).expect("run command");
+
+        assert_eq!(result.command_name, "hello");
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.stdout, "hello\n");
+        assert_eq!(result.stderr, "");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn returns_non_zero_exit_output() {
+        let temp_dir = unique_test_dir("run-non-zero");
+        let bin_dir = temp_dir.join("bin");
+        let script_path = temp_dir.join("fail.sh");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(&script_path, "#!/bin/sh\necho failed >&2\nexit 7\n").unwrap();
+        create_registered_command(&script_path, "fail-command", &bin_dir, "1700000000")
+            .expect("register command");
+
+        let result = run_registered_command_in_dir("fail-command", &bin_dir).expect("run command");
+
+        assert_eq!(result.exit_code, Some(7));
+        assert_eq!(result.stdout, "");
+        assert_eq!(result.stderr, "failed\n");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn refuses_to_run_unmanaged_entry() {
+        let temp_dir = unique_test_dir("run-unmanaged");
+        let bin_dir = temp_dir.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let entry_path = command_entry_path(&bin_dir, "deploy-preview");
+        fs::write(&entry_path, "#!/bin/sh\necho unmanaged\n").unwrap();
+
+        let error = run_registered_command_in_dir("deploy-preview", &bin_dir).unwrap_err();
+
+        assert_eq!(error, "不会执行非 DevDock 生成的入口。");
 
         let _ = fs::remove_dir_all(temp_dir);
     }

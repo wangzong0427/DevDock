@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import type { EntryType, RegisteredCommand } from "../../types";
+import { VideoPlay } from "@element-plus/icons-vue";
+import type { CommandRunResult, EntryType, RegisteredCommand } from "../../types";
 
 defineProps<{
   commands: RegisteredCommand[];
+  runningCommandName: string | null;
+  lastRunResult: CommandRunResult | null;
 }>();
 
 const emit = defineEmits<{
+  run: [command: RegisteredCommand];
   reveal: [command: RegisteredCommand];
   delete: [command: RegisteredCommand];
 }>();
@@ -21,6 +25,12 @@ function entryTypeTag(type: EntryType) {
   if (type === "symlink") return "primary";
   if (type === "wrapper") return "success";
   return "info";
+}
+
+function exitLabel(result: CommandRunResult) {
+  return result.exitCode === null || result.exitCode === undefined
+    ? "未返回退出码"
+    : `退出码 ${result.exitCode}`;
 }
 </script>
 
@@ -45,13 +55,47 @@ function entryTypeTag(type: EntryType) {
         </el-tag>
         <span class="command-created">{{ command.createdAt }}</span>
         <div class="command-actions">
+          <el-button
+            type="success"
+            link
+            :icon="VideoPlay"
+            :loading="runningCommandName === command.name"
+            :disabled="Boolean(runningCommandName && runningCommandName !== command.name)"
+            @click="emit('run', command)"
+          >
+            执行
+          </el-button>
           <el-button type="primary" link @click="emit('reveal', command)">定位</el-button>
-          <el-button type="danger" link @click="emit('delete', command)">删除</el-button>
+          <el-button type="danger" link :disabled="runningCommandName === command.name" @click="emit('delete', command)">
+            删除
+          </el-button>
         </div>
       </article>
     </div>
     <el-empty v-else class="command-empty" description="还没有注册命令">
       <span>选择一个脚本，创建第一个终端快捷命令。</span>
     </el-empty>
+
+    <section v-if="lastRunResult" class="command-run-result" aria-label="最近一次执行结果">
+      <div class="run-result-header">
+        <div>
+          <strong>{{ lastRunResult.commandName }}</strong>
+          <span>{{ exitLabel(lastRunResult) }}</span>
+        </div>
+        <el-tag :type="lastRunResult.exitCode === 0 ? 'success' : 'danger'" effect="light">
+          {{ lastRunResult.exitCode === 0 ? "执行成功" : "执行失败" }}
+        </el-tag>
+      </div>
+      <div class="run-output-grid">
+        <div class="run-output">
+          <span>标准输出</span>
+          <pre>{{ lastRunResult.stdout || "无输出" }}</pre>
+        </div>
+        <div class="run-output">
+          <span>错误输出</span>
+          <pre>{{ lastRunResult.stderr || "无输出" }}</pre>
+        </div>
+      </div>
+    </section>
   </el-card>
 </template>

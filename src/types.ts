@@ -21,3 +21,10 @@ export type RegisteredCommand = {
   entryType: EntryType;
   createdAt: string;
 };
+
+export type CommandRunResult = {
+  commandName: string;
+  exitCode?: number | null;
+  stdout: string;
+  stderr: string;
+};
