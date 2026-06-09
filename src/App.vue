@@ -10,8 +10,11 @@ import CommandsView from "./features/commands/CommandsView.vue";
 import type {
   ActiveModule,
   CommandOutputChunk,
+  CommandRunFailed,
+  CommandRunFinished,
   CommandRunOutput,
   CommandRunResult,
+  CommandRunStarted,
   PathStatus,
   PlatformInfo,
   RegisteredCommand,
@@ -35,6 +38,9 @@ const commands = ref<RegisteredCommand[]>([]);
 const runningCommandName = ref<string | null>(null);
 const runOutput = ref<CommandRunOutput | null>(null);
 let unlistenCommandOutput: UnlistenFn | null = null;
+let unlistenCommandRunStarted: UnlistenFn | null = null;
+let unlistenCommandRunFinished: UnlistenFn | null = null;
+let unlistenCommandRunFailed: UnlistenFn | null = null;
 
 const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
 
@@ -183,6 +189,46 @@ function appendCommandOutput(chunk: CommandOutputChunk) {
   }
 }
 
+function startCommandRun(event: CommandRunStarted) {
+  activeModule.value = "commands";
+  runningCommandName.value = event.commandName;
+  runOutput.value = {
+    commandName: event.commandName,
+    exitCode: null,
+    stdout: "",
+    stderr: "",
+    status: "running",
+  };
+}
+
+function finishCommandRun(result: CommandRunFinished) {
+  activeModule.value = "commands";
+  runningCommandName.value = null;
+  runOutput.value = {
+    ...result,
+    status: result.exitCode === 0 ? "success" : "failed",
+  };
+
+  if (result.exitCode === 0) {
+    pushToast("success", `${result.commandName} 执行完成。`);
+  } else {
+    pushToast("error", `${result.commandName} 执行失败，退出码：${result.exitCode ?? "未知"}。`);
+  }
+}
+
+function failCommandRun(event: CommandRunFailed) {
+  activeModule.value = "commands";
+  runningCommandName.value = null;
+  runOutput.value = {
+    commandName: event.commandName,
+    exitCode: null,
+    stdout: "",
+    stderr: event.message,
+    status: "failed",
+  };
+  pushToast("error", `${event.commandName} 执行失败。`);
+}
+
 async function runCommand(command: RegisteredCommand) {
   if (runningCommandName.value) return;
 
@@ -242,10 +288,40 @@ onMounted(() => {
     .catch((error) => {
       pushToast("error", `监听命令输出失败：${String(error)}`);
     });
+  void listen<CommandRunStarted>("command-run-started", (event) => {
+    startCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunStarted = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令开始事件失败：${String(error)}`);
+    });
+  void listen<CommandRunFinished>("command-run-finished", (event) => {
+    finishCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunFinished = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令完成事件失败：${String(error)}`);
+    });
+  void listen<CommandRunFailed>("command-run-failed", (event) => {
+    failCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunFailed = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令失败事件失败：${String(error)}`);
+    });
 });
 
 onBeforeUnmount(() => {
   unlistenCommandOutput?.();
+  unlistenCommandRunStarted?.();
+  unlistenCommandRunFinished?.();
+  unlistenCommandRunFailed?.();
 });
 </script>
 

@@ -37,6 +37,17 @@ export type CommandOutputChunk = {
   text: string;
 };
 
+export type CommandRunStarted = {
+  commandName: string;
+};
+
+export type CommandRunFinished = CommandRunResult;
+
+export type CommandRunFailed = {
+  commandName: string;
+  message: string;
+};
+
 export type CommandRunOutput = CommandRunResult & {
   status: "running" | "success" | "failed";
 };

@@ -8,12 +8,23 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+
+#[cfg(desktop)]
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::TrayIconBuilder,
+};
 
 const DEVDOC_MARKER: &str = "DevDock managed command";
 const COMMAND_NAME_META: &str = "devdock-command-name:";
 const SCRIPT_PATH_META: &str = "devdock-script-path:";
 const CREATED_AT_META: &str = "devdock-created-at:";
+const TRAY_ID: &str = "devdock-main-tray";
+const TRAY_COMMAND_PREFIX: &str = "tray-command-";
+const TRAY_MENU_OPEN_WINDOW: &str = "tray-open-window";
+const TRAY_MENU_REFRESH_COMMANDS: &str = "tray-refresh-commands";
+const TRAY_MENU_QUIT: &str = "tray-quit";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +57,19 @@ struct CommandRunResultResponse {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CommandRunStartedResponse {
+    command_name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandRunFailedResponse {
+    command_name: String,
+    message: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CommandOutputChunkResponse {
     command_name: String,
     stream: String,
@@ -64,6 +88,7 @@ fn get_path_status() -> PathStatusResponse {
 
 #[tauri::command(rename_all = "camelCase")]
 async fn register_command(
+    app: AppHandle,
     script_path: String,
     command_name: String,
 ) -> Result<RegisteredCommandResponse, String> {
@@ -75,6 +100,9 @@ async fn register_command(
         create_registered_command(&script_path, &command_name, &bin_dir, &created_at)
     })
     .await
+    .inspect(|_| {
+        let _ = refresh_tray_menu(&app);
+    })
 }
 
 #[tauri::command]
@@ -84,9 +112,13 @@ async fn list_registered_commands() -> Result<Vec<RegisteredCommandResponse>, St
 }
 
 #[tauri::command(rename_all = "camelCase")]
-async fn delete_registered_command(command_name: String) -> Result<(), String> {
+async fn delete_registered_command(app: AppHandle, command_name: String) -> Result<(), String> {
     let bin_dir = recommended_bin_dir();
-    run_blocking_task(move || delete_registered_command_in_dir(&command_name, &bin_dir)).await
+    run_blocking_task(move || delete_registered_command_in_dir(&command_name, &bin_dir))
+        .await
+        .inspect(|_| {
+            let _ = refresh_tray_menu(&app);
+        })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -130,6 +162,207 @@ fn spawn_registered_command_run(
             on_output(stream, text);
         })
     })
+}
+
+fn tray_command_menu_id(command_name: &str) -> String {
+    format!("{TRAY_COMMAND_PREFIX}{command_name}")
+}
+
+fn command_name_from_tray_menu_id(menu_id: &str) -> Option<String> {
+    menu_id
+        .strip_prefix(TRAY_COMMAND_PREFIX)
+        .filter(|command_name| !command_name.is_empty())
+        .map(ToString::to_string)
+}
+
+fn should_show_window_for_tray_result(exit_code: Option<i32>, execution_error: bool) -> bool {
+    execution_error || exit_code != Some(0)
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &AppHandle) -> Result<(), String> {
+    let menu = build_tray_menu(app)?;
+    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .tooltip("DevDock")
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| {
+            handle_tray_menu_event(app, event.id().as_ref());
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray_builder = tray_builder.icon(icon).icon_as_template(true);
+    }
+
+    tray_builder
+        .build(app)
+        .map(|_| ())
+        .map_err(|error| format!("状态栏图标创建失败：{error}"))
+}
+
+#[cfg(not(desktop))]
+fn setup_tray(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn refresh_tray_menu(app: &AppHandle) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
+
+    let menu = build_tray_menu(app)?;
+    tray.set_menu(Some(menu))
+        .map_err(|error| format!("状态栏菜单刷新失败：{error}"))
+}
+
+#[cfg(not(desktop))]
+fn refresh_tray_menu(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
+    let menu = Menu::new(app).map_err(|error| format!("状态栏菜单创建失败：{error}"))?;
+    let commands = list_registered_commands_in_dir(&recommended_bin_dir())?;
+
+    if commands.is_empty() {
+        let empty_item = MenuItem::with_id(
+            app,
+            "tray-empty-commands",
+            "暂无已注册命令",
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| format!("状态栏空菜单创建失败：{error}"))?;
+        menu.append(&empty_item)
+            .map_err(|error| format!("状态栏空菜单追加失败：{error}"))?;
+    } else {
+        for command in commands {
+            let command_item = MenuItem::with_id(
+                app,
+                tray_command_menu_id(&command.name),
+                command.name,
+                true,
+                None::<&str>,
+            )
+            .map_err(|error| format!("状态栏命令菜单创建失败：{error}"))?;
+            menu.append(&command_item)
+                .map_err(|error| format!("状态栏命令菜单追加失败：{error}"))?;
+        }
+    }
+
+    let separator = PredefinedMenuItem::separator(app)
+        .map_err(|error| format!("状态栏分隔线创建失败：{error}"))?;
+    let open_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_WINDOW,
+        "打开 DevDock",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| format!("状态栏打开菜单创建失败：{error}"))?;
+    let refresh_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_REFRESH_COMMANDS,
+        "刷新命令",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| format!("状态栏刷新菜单创建失败：{error}"))?;
+    let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT, "退出 DevDock", true, None::<&str>)
+        .map_err(|error| format!("状态栏退出菜单创建失败：{error}"))?;
+
+    menu.append(&separator)
+        .map_err(|error| format!("状态栏分隔线追加失败：{error}"))?;
+    menu.append(&open_item)
+        .map_err(|error| format!("状态栏打开菜单追加失败：{error}"))?;
+    menu.append(&refresh_item)
+        .map_err(|error| format!("状态栏刷新菜单追加失败：{error}"))?;
+    menu.append(&quit_item)
+        .map_err(|error| format!("状态栏退出菜单追加失败：{error}"))?;
+
+    Ok(menu)
+}
+
+#[cfg(desktop)]
+fn handle_tray_menu_event(app: &AppHandle, menu_id: &str) {
+    if let Some(command_name) = command_name_from_tray_menu_id(menu_id) {
+        run_registered_command_from_tray(app.clone(), command_name);
+        return;
+    }
+
+    match menu_id {
+        TRAY_MENU_OPEN_WINDOW => show_main_window(app),
+        TRAY_MENU_REFRESH_COMMANDS => {
+            let _ = refresh_tray_menu(app);
+        }
+        TRAY_MENU_QUIT => app.exit(0),
+        _ => {}
+    }
+}
+
+#[cfg(desktop)]
+fn run_registered_command_from_tray(app: AppHandle, command_name: String) {
+    let _ = app.emit(
+        "command-run-started",
+        CommandRunStartedResponse {
+            command_name: command_name.clone(),
+        },
+    );
+
+    let bin_dir = recommended_bin_dir();
+    let event_app = app.clone();
+    let event_command_name = command_name.clone();
+    let run_handle =
+        spawn_registered_command_run(command_name.clone(), bin_dir, move |stream, text| {
+            let _ = event_app.emit(
+                "command-output",
+                CommandOutputChunkResponse {
+                    command_name: event_command_name.clone(),
+                    stream: stream.to_string(),
+                    text: text.to_string(),
+                },
+            );
+        });
+
+    tauri::async_runtime::spawn(async move {
+        let run_result = run_handle
+            .await
+            .map_err(|error| format!("后台任务执行失败：{error}"));
+
+        match run_result {
+            Ok(Ok(result)) => {
+                let should_show_window =
+                    should_show_window_for_tray_result(result.exit_code, false);
+                let _ = app.emit("command-run-finished", &result);
+                if should_show_window {
+                    show_main_window(&app);
+                }
+            }
+            Ok(Err(message)) | Err(message) => {
+                let _ = app.emit(
+                    "command-run-failed",
+                    CommandRunFailedResponse {
+                        command_name,
+                        message,
+                    },
+                );
+                if should_show_window_for_tray_result(None, true) {
+                    show_main_window(&app);
+                }
+            }
+        }
+    });
+}
+
+#[cfg(desktop)]
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn build_path_status(bin_dir: PathBuf, paths: Vec<PathBuf>) -> PathStatusResponse {
@@ -567,6 +800,10 @@ fn current_timestamp() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            setup_tray(app.handle()).map_err(|error| Box::<dyn std::error::Error>::from(error))?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_path_status,
             register_command,
@@ -736,6 +973,23 @@ mod tests {
         assert!(commands.is_empty());
 
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn parses_tray_command_menu_id() {
+        assert_eq!(
+            command_name_from_tray_menu_id("tray-command-deploy-preview"),
+            Some("deploy-preview".to_string())
+        );
+        assert_eq!(command_name_from_tray_menu_id("open-window"), None);
+    }
+
+    #[test]
+    fn only_failed_tray_results_should_show_main_window() {
+        assert!(!should_show_window_for_tray_result(Some(0), false));
+        assert!(should_show_window_for_tray_result(Some(7), false));
+        assert!(should_show_window_for_tray_result(None, false));
+        assert!(should_show_window_for_tray_result(Some(0), true));
     }
 
     #[cfg(not(target_os = "windows"))]
