@@ -21,7 +21,6 @@ defineProps<{
 const emit = defineEmits<{
   "update:scriptPath": [value: string];
   "update:commandName": [value: string];
-  browse: [];
   register: [];
   refresh: [];
   copyPath: [];
@@ -51,7 +50,6 @@ const emit = defineEmits<{
       :is-registering="isRegistering"
       @update:script-path="emit('update:scriptPath', $event)"
       @update:command-name="emit('update:commandName', $event)"
-      @browse="emit('browse')"
       @register="emit('register')"
     />
 

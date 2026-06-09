@@ -11,6 +11,7 @@ export type PathStatus = {
   binDir: string;
   message: string;
   suggestedCommand?: string;
+  paths?: string[];
 };
 
 export type RegisteredCommand = {

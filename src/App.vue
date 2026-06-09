@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { invoke } from "@tauri-apps/api/core";
 import { ElMessage } from "element-plus";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import AdbView from "./features/adb/AdbView.vue";
@@ -10,34 +11,18 @@ import type { ActiveModule, PathStatus, PlatformInfo, RegisteredCommand } from "
 const activeModule = ref<ActiveModule>("commands");
 const platformInfo = ref<PlatformInfo>({ name: "macOS" });
 const pathStatus = ref<PathStatus>({
-  state: "missing",
-  binDir: "~/.local/bin",
-  message: "命令目录未加入 PATH。",
+  state: "checking",
+  binDir: "",
+  message: "正在读取系统 PATH...",
   suggestedCommand: "export PATH=\"$HOME/.local/bin:$PATH\"",
 });
 
-const scriptPath = ref("/Users/me/dev/scripts/deploy-preview.sh");
-const commandName = ref("deploy-preview");
+const scriptPath = ref("");
+const commandName = ref("");
 const isRegistering = ref(false);
 const isRefreshing = ref(false);
 const commandToDelete = ref<RegisteredCommand | null>(null);
-
-const commands = ref<RegisteredCommand[]>([
-  {
-    name: "sync-env",
-    scriptPath: "/Users/me/dev/scripts/sync-env.sh",
-    entryPath: "~/.local/bin/sync-env",
-    entryType: "wrapper",
-    createdAt: "2024-05-14 10:32",
-  },
-  {
-    name: "clean-cache",
-    scriptPath: "/Users/me/dev/scripts/clean-cache.sh",
-    entryPath: "~/.local/bin/clean-cache",
-    entryType: "symlink",
-    createdAt: "2024-05-14 10:28",
-  },
-]);
+const commands = ref<RegisteredCommand[]>([]);
 
 const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
 
@@ -61,7 +46,8 @@ const entryPreview = computed(() => {
   if (platformInfo.value.name === "Windows") {
     return `%LOCALAPPDATA%\\devdock\\bin\\${name}.cmd`;
   }
-  return `~/.local/bin/${name}`;
+  const binDir = pathStatus.value.binDir || "~/.local/bin";
+  return `${binDir}/${name}`;
 });
 
 const pathTone = computed(() => {
@@ -87,51 +73,68 @@ function pushToast(tone: "success" | "error" | "info", text: string) {
   });
 }
 
-function chooseMockScript() {
-  scriptPath.value = "/Users/me/dev/scripts/deploy-preview.sh";
-  if (!commandName.value) {
-    commandName.value = "deploy-preview";
+async function refreshPathStatus() {
+  pathStatus.value = {
+    ...pathStatus.value,
+    state: "checking",
+    message: "正在读取系统 PATH...",
+  };
+
+  try {
+    pathStatus.value = await invoke<PathStatus>("get_path_status");
+  } catch (error) {
+    pathStatus.value = {
+      state: "error",
+      binDir: pathStatus.value.binDir || "~/.local/bin",
+      message: `读取 PATH 失败：${String(error)}`,
+      suggestedCommand: pathStatus.value.suggestedCommand || "export PATH=\"$HOME/.local/bin:$PATH\"",
+      paths: [],
+    };
+    pushToast("error", "读取 PATH 失败。");
   }
 }
 
-function refreshCommands() {
-  isRefreshing.value = true;
-  window.setTimeout(() => {
-    isRefreshing.value = false;
-    pushToast("info", "命令列表已刷新。");
-  }, 500);
+async function refreshRegisteredCommands() {
+  try {
+    commands.value = await invoke<RegisteredCommand[]>("list_registered_commands");
+  } catch (error) {
+    commands.value = [];
+    pushToast("error", `读取命令列表失败：${String(error)}`);
+  }
 }
 
-function registerCommand() {
+async function refreshCommands() {
+  isRefreshing.value = true;
+  await Promise.all([
+    refreshPathStatus(),
+    refreshRegisteredCommands(),
+    new Promise((resolve) => {
+      window.setTimeout(resolve, 500);
+    }),
+  ]);
+  isRefreshing.value = false;
+  pushToast("info", "命令列表和 PATH 状态已刷新。");
+}
+
+async function registerCommand() {
   if (!canRegister.value) return;
 
-  const name = commandName.value;
-  const createdAt = new Date().toLocaleString([], {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
+  const name = commandName.value.trim();
   isRegistering.value = true;
-  window.setTimeout(() => {
-    commands.value = [
-      {
-        name,
-        scriptPath: scriptPath.value,
-        entryPath: entryPreview.value,
-        entryType: platformInfo.value.name === "Windows" ? "cmd-shim" : "wrapper",
-        createdAt,
-      },
-      ...commands.value,
-    ];
+  try {
+    await invoke<RegisteredCommand>("register_command", {
+      scriptPath: scriptPath.value.trim(),
+      commandName: name,
+    });
+    await refreshRegisteredCommands();
     scriptPath.value = "";
     commandName.value = "";
-    isRegistering.value = false;
     pushToast("success", `已注册 ${name}。`);
-  }, 650);
+  } catch (error) {
+    pushToast("error", `注册失败：${String(error)}`);
+  } finally {
+    isRegistering.value = false;
+  }
 }
 
 async function copyPathCommand() {
@@ -145,17 +148,27 @@ async function copyPathCommand() {
 }
 
 function revealCommand(command: RegisteredCommand) {
-  pushToast("info", `后端接入后会打开 ${command.entryPath}。`);
+  pushToast("info", `命令入口：${command.entryPath}`);
 }
 
-function deleteCommand() {
+async function deleteCommand() {
   if (!commandToDelete.value) return;
 
   const deletedName = commandToDelete.value.name;
-  commands.value = commands.value.filter((command) => command.name !== deletedName);
-  commandToDelete.value = null;
-  pushToast("success", `已删除 ${deletedName}。`);
+  try {
+    await invoke("delete_registered_command", { commandName: deletedName });
+    await refreshRegisteredCommands();
+    commandToDelete.value = null;
+    pushToast("success", `已删除 ${deletedName}。`);
+  } catch (error) {
+    pushToast("error", `删除失败：${String(error)}`);
+  }
 }
+
+onMounted(() => {
+  void refreshPathStatus();
+  void refreshRegisteredCommands();
+});
 </script>
 
 <template>
@@ -181,7 +194,6 @@ function deleteCommand() {
           :path-status="pathStatus"
           :path-tone="pathTone"
           :commands="commands"
-          @browse="chooseMockScript"
           @register="registerCommand"
           @refresh="refreshCommands"
           @copy-path="copyPathCommand"

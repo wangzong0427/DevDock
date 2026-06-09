@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderOpened, Plus } from "@element-plus/icons-vue";
+import { Plus } from "@element-plus/icons-vue";
 
 defineProps<{
   scriptPath: string;
@@ -13,7 +13,6 @@ defineProps<{
 const emit = defineEmits<{
   "update:scriptPath": [value: string];
   "update:commandName": [value: string];
-  browse: [];
   register: [];
 }>();
 
@@ -38,14 +37,10 @@ function updateCommandName(value: string | number) {
       <el-form-item label="脚本文件">
         <el-input
           :model-value="scriptPath"
-          readonly
-          placeholder="选择一个脚本文件"
+          clearable
+          placeholder="粘贴脚本文件的绝对路径"
           @update:model-value="updateScriptPath"
-        >
-          <template #append>
-            <el-button :icon="FolderOpened" @click="emit('browse')">选择</el-button>
-          </template>
-        </el-input>
+        />
       </el-form-item>
 
       <el-form-item label="命令名" :error="commandNameError">
