@@ -6,6 +6,7 @@
 - 回答要直接、具体，优先给出可执行结论和必要上下文。
 - 涉及代码、命令、文件路径时，使用准确的文件名和命令，不要含糊描述。
 - 如果无法完成某一步，说明阻塞原因、已尝试的操作，以及建议的下一步。
+- 页面里展示出来的文字需要是中文
 
 ## 项目概览
 
@@ -47,6 +48,7 @@
 - Tauri 命令应保持参数和返回值可序列化，跨前后端调用时同步更新 TypeScript 调用方。
 - 修改 Tauri 权限、插件或窗口能力时，同步检查 `src-tauri/capabilities/` 和 `tauri.conf.json`。
 - 不要无故引入新依赖；确实需要时说明用途，并优先选择项目生态内成熟、维护良好的库。
+- 根据功能进行页面或组件拆分
 
 ## 验证要求
 
@@ -57,6 +59,7 @@
 - 改 Rust/Tauri 后端：至少运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
 - 同时改前端和后端：运行 `npm run build` 和 `cargo check --manifest-path src-tauri/Cargo.toml`。
 - 改动影响实际桌面行为时，优先运行 `npm run tauri dev` 做手动验证。
+- 本项目不运行 web 端进行验证；不要启动 `npm run dev`、`npm run preview` 或使用浏览器/web 页面验证，涉及界面和交互时按 Tauri 桌面应用路径验证。
 
 如果验证命令因依赖、系统权限或外部环境失败，必须在最终回复中说明。
 

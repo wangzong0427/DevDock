@@ -1,0 +1,469 @@
+:root {
+  --devdock-bg: #f5f7fb;
+  --devdock-sidebar: #ffffff;
+  --devdock-border: #dcdfe6;
+  --devdock-text: #1f2329;
+  --devdock-muted: #606266;
+  --devdock-sidebar-width: clamp(84px, 22vw, 248px);
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI",
+    "Microsoft YaHei", sans-serif;
+  color: var(--devdock-text);
+  background: var(--devdock-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--devdock-bg);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#app,
+.app-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell {
+  background: var(--devdock-bg);
+}
+
+.content-shell {
+  flex: 1 1 auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--devdock-sidebar-width);
+  width: var(--devdock-sidebar-width);
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--devdock-border);
+  background: var(--devdock-sidebar);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 20px 20px;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+
+.brand h1,
+.brand p,
+.page-header h2,
+.page-header p,
+.card-header h3,
+.confirm-copy {
+  margin: 0;
+}
+
+.brand h1 {
+  color: var(--devdock-text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.brand p {
+  margin-top: 4px;
+  color: var(--devdock-muted);
+  font-size: 13px;
+}
+
+.sidebar-menu {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 0;
+}
+
+.sidebar-menu .el-menu-item {
+  gap: 4px;
+  margin: 4px 12px;
+  border-radius: 6px;
+}
+
+.sidebar-menu .el-menu-item.is-active {
+  background: var(--el-color-primary-light-9);
+}
+
+.menu-tag {
+  margin-left: auto;
+}
+
+.sidebar-footer {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--devdock-border);
+  padding: 18px 20px 22px;
+}
+
+.footer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--devdock-muted);
+  font-size: 14px;
+}
+
+.footer-row.warning {
+  color: var(--el-color-warning);
+}
+
+.footer-row.danger {
+  color: var(--el-color-danger);
+}
+
+.footer-row.ok {
+  color: var(--el-color-success);
+}
+
+.workspace {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(14px, 3vw, 32px);
+}
+
+.commands-view {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: clamp(10px, 2vh, 18px);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 1180px;
+  overflow: hidden;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 2px 6px;
+}
+
+.page-header h2 {
+  color: var(--devdock-text);
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.page-header p {
+  margin-top: 8px;
+  color: var(--devdock-muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-header h3 {
+  color: var(--devdock-text);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.register-card,
+.path-card,
+.command-section,
+.adb-view {
+  border-radius: 8px;
+}
+
+.register-card,
+.path-card,
+.command-section {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.register-card .el-card__header,
+.command-section .el-card__header {
+  padding: clamp(12px, 2vh, 18px) clamp(14px, 2vw, 20px);
+}
+
+.register-card .el-card__body,
+.path-card .el-card__body {
+  padding: clamp(12px, 2vh, 18px) clamp(14px, 2vw, 20px);
+}
+
+.register-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  max-width: none;
+}
+
+.register-form .el-form-item {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.form-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.path-card .el-card__body {
+  display: grid;
+  gap: 16px;
+}
+
+.path-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.command-section .el-card__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(10px, 1.8vh, 16px);
+}
+
+.command-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.command-list {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.command-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.4fr) auto max-content auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--devdock-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.command-name,
+.command-actions {
+  display: flex;
+  align-items: center;
+}
+
+.command-name {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.command-name strong,
+.command-name span,
+.command-script,
+.command-created {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-name strong {
+  color: var(--devdock-text);
+  font-size: 14px;
+}
+
+.command-name span,
+.command-script,
+.command-created {
+  color: var(--devdock-muted);
+  font-size: 13px;
+}
+
+.command-actions {
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.command-empty {
+  width: 100%;
+  min-height: 0;
+}
+
+.confirm-copy {
+  color: var(--devdock-muted);
+  line-height: 1.6;
+}
+
+.adb-view {
+  width: min(100%, 760px);
+  max-width: 760px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    padding: 20px;
+  }
+
+  .path-tools {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --devdock-sidebar-width: 76px;
+  }
+
+  .brand {
+    justify-content: center;
+    padding: 18px 10px 14px;
+  }
+
+  .brand div,
+  .sidebar-menu .el-menu-item span,
+  .menu-tag,
+  .footer-row strong {
+    display: none;
+  }
+
+  .sidebar-menu .el-menu-item {
+    justify-content: center;
+    margin: 4px 10px;
+    padding: 0;
+  }
+
+  .sidebar-footer {
+    justify-items: center;
+    padding: 14px 10px 16px;
+  }
+
+  .footer-row {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    padding: 14px;
+  }
+
+  .page-header {
+    gap: 12px;
+  }
+
+  .page-header p,
+  .command-created {
+    display: none;
+  }
+
+  .register-form,
+  .path-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .form-actions {
+    justify-content: stretch;
+  }
+
+  .form-actions .el-button {
+    width: 100%;
+  }
+
+  .command-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .command-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .command-script {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .command-entry {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .command-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: flex-start;
+  }
+}

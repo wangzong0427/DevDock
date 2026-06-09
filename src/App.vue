@@ -1,160 +1,197 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { ElMessage } from "element-plus";
+import { computed, ref } from "vue";
+import ConfirmDialog from "./components/ConfirmDialog.vue";
+import SidebarNav from "./components/SidebarNav.vue";
+import AdbView from "./features/adb/AdbView.vue";
+import CommandsView from "./features/commands/CommandsView.vue";
+import type { ActiveModule, PathStatus, PlatformInfo, RegisteredCommand } from "./types";
 
-const greetMsg = ref("");
-const name = ref("");
+const activeModule = ref<ActiveModule>("commands");
+const platformInfo = ref<PlatformInfo>({ name: "macOS" });
+const pathStatus = ref<PathStatus>({
+  state: "missing",
+  binDir: "~/.local/bin",
+  message: "命令目录未加入 PATH。",
+  suggestedCommand: "export PATH=\"$HOME/.local/bin:$PATH\"",
+});
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+const scriptPath = ref("/Users/me/dev/scripts/deploy-preview.sh");
+const commandName = ref("deploy-preview");
+const isRegistering = ref(false);
+const isRefreshing = ref(false);
+const commandToDelete = ref<RegisteredCommand | null>(null);
+
+const commands = ref<RegisteredCommand[]>([
+  {
+    name: "sync-env",
+    scriptPath: "/Users/me/dev/scripts/sync-env.sh",
+    entryPath: "~/.local/bin/sync-env",
+    entryType: "wrapper",
+    createdAt: "2024-05-14 10:32",
+  },
+  {
+    name: "clean-cache",
+    scriptPath: "/Users/me/dev/scripts/clean-cache.sh",
+    entryPath: "~/.local/bin/clean-cache",
+    entryType: "symlink",
+    createdAt: "2024-05-14 10:28",
+  },
+]);
+
+const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
+
+const commandNameError = computed(() => {
+  if (!commandName.value) return "";
+  if (!commandNamePattern.test(commandName.value)) {
+    return "只能使用字母、数字、点、短横线或下划线。";
+  }
+  if (commands.value.some((command) => command.name === commandName.value)) {
+    return "该命令名已存在。";
+  }
+  return "";
+});
+
+const canRegister = computed(() => {
+  return Boolean(scriptPath.value && commandName.value && !commandNameError.value);
+});
+
+const entryPreview = computed(() => {
+  const name = commandName.value || "my-command";
+  if (platformInfo.value.name === "Windows") {
+    return `%LOCALAPPDATA%\\devdock\\bin\\${name}.cmd`;
+  }
+  return `~/.local/bin/${name}`;
+});
+
+const pathTone = computed(() => {
+  if (pathStatus.value.state === "ok") return "ok";
+  if (pathStatus.value.state === "missing") return "warning";
+  if (pathStatus.value.state === "error") return "danger";
+  return "muted";
+});
+
+const pathStatusLabel = computed(() => {
+  if (pathStatus.value.state === "ok") return "PATH 正常";
+  if (pathStatus.value.state === "missing") return "PATH 未配置";
+  if (pathStatus.value.state === "error") return "PATH 异常";
+  return "检查中";
+});
+
+function pushToast(tone: "success" | "error" | "info", text: string) {
+  ElMessage({
+    message: text,
+    type: tone,
+    duration: 2600,
+    showClose: true,
+  });
+}
+
+function chooseMockScript() {
+  scriptPath.value = "/Users/me/dev/scripts/deploy-preview.sh";
+  if (!commandName.value) {
+    commandName.value = "deploy-preview";
+  }
+}
+
+function refreshCommands() {
+  isRefreshing.value = true;
+  window.setTimeout(() => {
+    isRefreshing.value = false;
+    pushToast("info", "命令列表已刷新。");
+  }, 500);
+}
+
+function registerCommand() {
+  if (!canRegister.value) return;
+
+  const name = commandName.value;
+  const createdAt = new Date().toLocaleString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  isRegistering.value = true;
+  window.setTimeout(() => {
+    commands.value = [
+      {
+        name,
+        scriptPath: scriptPath.value,
+        entryPath: entryPreview.value,
+        entryType: platformInfo.value.name === "Windows" ? "cmd-shim" : "wrapper",
+        createdAt,
+      },
+      ...commands.value,
+    ];
+    scriptPath.value = "";
+    commandName.value = "";
+    isRegistering.value = false;
+    pushToast("success", `已注册 ${name}。`);
+  }, 650);
+}
+
+async function copyPathCommand() {
+  const command = pathStatus.value.suggestedCommand || pathStatus.value.binDir;
+  try {
+    await navigator.clipboard.writeText(command);
+    pushToast("success", "PATH 修复命令已复制。");
+  } catch {
+    pushToast("error", "复制失败，请手动选择命令。");
+  }
+}
+
+function revealCommand(command: RegisteredCommand) {
+  pushToast("info", `后端接入后会打开 ${command.entryPath}。`);
+}
+
+function deleteCommand() {
+  if (!commandToDelete.value) return;
+
+  const deletedName = commandToDelete.value.name;
+  commands.value = commands.value.filter((command) => command.name !== deletedName);
+  commandToDelete.value = null;
+  pushToast("success", `已删除 ${deletedName}。`);
 }
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+  <el-container class="app-shell">
+    <SidebarNav
+      v-model:active-module="activeModule"
+      :platform-info="platformInfo"
+      :path-tone="pathTone"
+      :path-status-label="pathStatusLabel"
+    />
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
-    </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
+    <el-container class="content-shell">
+      <el-main class="workspace">
+        <CommandsView
+          v-if="activeModule === 'commands'"
+          v-model:script-path="scriptPath"
+          v-model:command-name="commandName"
+          :command-name-error="commandNameError"
+          :entry-preview="entryPreview"
+          :can-register="canRegister"
+          :is-registering="isRegistering"
+          :is-refreshing="isRefreshing"
+          :path-status="pathStatus"
+          :path-tone="pathTone"
+          :commands="commands"
+          @browse="chooseMockScript"
+          @register="registerCommand"
+          @refresh="refreshCommands"
+          @copy-path="copyPathCommand"
+          @reveal-command="revealCommand"
+          @request-delete="commandToDelete = $event"
+        />
+        <AdbView v-else />
+      </el-main>
+    </el-container>
 
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+    <ConfirmDialog :command="commandToDelete" @cancel="commandToDelete = null" @confirm="deleteCommand" />
+  </el-container>
 </template>
-
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
