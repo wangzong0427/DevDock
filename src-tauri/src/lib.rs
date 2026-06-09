@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(desktop)]
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
@@ -182,22 +183,46 @@ fn should_show_window_for_tray_result(exit_code: Option<i32>, execution_error: b
 #[cfg(desktop)]
 fn setup_tray(app: &AppHandle) -> Result<(), String> {
     let menu = build_tray_menu(app)?;
-    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID)
+    let tray_builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .tooltip("DevDock")
+        .icon(tray_template_icon())
+        .icon_as_template(true)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
             handle_tray_menu_event(app, event.id().as_ref());
         });
 
-    if let Some(icon) = app.default_window_icon().cloned() {
-        tray_builder = tray_builder.icon(icon).icon_as_template(true);
-    }
-
     tray_builder
         .build(app)
         .map(|_| ())
         .map_err(|error| format!("状态栏图标创建失败：{error}"))
+}
+
+#[cfg(desktop)]
+fn tray_template_icon() -> Image<'static> {
+    const SIZE: u32 = 32;
+    let mut rgba = vec![0; (SIZE * SIZE * 4) as usize];
+
+    fn fill_rect(rgba: &mut [u8], x1: u32, y1: u32, x2: u32, y2: u32) {
+        for y in y1..y2 {
+            for x in x1..x2 {
+                let index = ((y * 32 + x) * 4) as usize;
+                rgba[index] = 255;
+                rgba[index + 1] = 255;
+                rgba[index + 2] = 255;
+                rgba[index + 3] = 255;
+            }
+        }
+    }
+
+    fill_rect(&mut rgba, 8, 7, 13, 22);
+    fill_rect(&mut rgba, 11, 7, 21, 12);
+    fill_rect(&mut rgba, 11, 17, 21, 22);
+    fill_rect(&mut rgba, 19, 9, 24, 20);
+    fill_rect(&mut rgba, 8, 25, 24, 28);
+
+    Image::new_owned(rgba, SIZE, SIZE)
 }
 
 #[cfg(not(desktop))]
@@ -800,7 +825,12 @@ fn current_timestamp() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())
+                .map_err(|error| Box::<dyn std::error::Error>::from(error))?;
             setup_tray(app.handle()).map_err(|error| Box::<dyn std::error::Error>::from(error))?;
             Ok(())
         })
@@ -990,6 +1020,22 @@ mod tests {
         assert!(should_show_window_for_tray_result(Some(7), false));
         assert!(should_show_window_for_tray_result(None, false));
         assert!(should_show_window_for_tray_result(Some(0), true));
+    }
+
+    #[test]
+    fn tray_icon_does_not_reuse_app_window_icon() {
+        let source = include_str!("lib.rs");
+        let setup_tray_start = source.find("fn setup_tray").expect("setup_tray exists");
+        let setup_tray_end = source[setup_tray_start..]
+            .find("#[cfg(not(desktop))]")
+            .map(|index| setup_tray_start + index)
+            .expect("non-desktop setup_tray exists");
+        let setup_tray_source = &source[setup_tray_start..setup_tray_end];
+
+        assert!(
+            !setup_tray_source.contains("default_window_icon"),
+            "状态栏图标必须使用透明的 template 专用图标，不能复用彩色应用图标。"
+        );
     }
 
     #[cfg(not(target_os = "windows"))]
