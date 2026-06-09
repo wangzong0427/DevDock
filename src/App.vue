@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage } from "element-plus";
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import AdbView from "./features/adb/AdbView.vue";
 import CommandsView from "./features/commands/CommandsView.vue";
-import type { ActiveModule, CommandRunResult, PathStatus, PlatformInfo, RegisteredCommand } from "./types";
+import type {
+  ActiveModule,
+  CommandOutputChunk,
+  CommandRunOutput,
+  CommandRunResult,
+  PathStatus,
+  PlatformInfo,
+  RegisteredCommand,
+} from "./types";
 
 const activeModule = ref<ActiveModule>("commands");
 const platformInfo = ref<PlatformInfo>({ name: "macOS" });
@@ -24,7 +33,8 @@ const isRefreshing = ref(false);
 const commandToDelete = ref<RegisteredCommand | null>(null);
 const commands = ref<RegisteredCommand[]>([]);
 const runningCommandName = ref<string | null>(null);
-const lastRunResult = ref<CommandRunResult | null>(null);
+const runOutput = ref<CommandRunOutput | null>(null);
+let unlistenCommandOutput: UnlistenFn | null = null;
 
 const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
 
@@ -107,15 +117,12 @@ async function refreshRegisteredCommands() {
 
 async function refreshCommands() {
   isRefreshing.value = true;
-  await Promise.all([
-    refreshPathStatus(),
-    refreshRegisteredCommands(),
-    new Promise((resolve) => {
-      window.setTimeout(resolve, 500);
-    }),
-  ]);
-  isRefreshing.value = false;
-  pushToast("info", "命令列表和 PATH 状态已刷新。");
+  try {
+    await Promise.all([refreshPathStatus(), refreshRegisteredCommands()]);
+    pushToast("info", "命令列表和 PATH 状态已刷新。");
+  } finally {
+    isRefreshing.value = false;
+  }
 }
 
 async function registerCommand() {
@@ -124,11 +131,14 @@ async function registerCommand() {
   const name = commandName.value.trim();
   isRegistering.value = true;
   try {
-    await invoke<RegisteredCommand>("register_command", {
+    const registeredCommand = await invoke<RegisteredCommand>("register_command", {
       scriptPath: scriptPath.value.trim(),
       commandName: name,
     });
-    await refreshRegisteredCommands();
+    commands.value = [
+      registeredCommand,
+      ...commands.value.filter((command) => command.name !== registeredCommand.name),
+    ];
     scriptPath.value = "";
     commandName.value = "";
     pushToast("success", `已注册 ${name}。`);
@@ -153,15 +163,46 @@ function revealCommand(command: RegisteredCommand) {
   pushToast("info", `命令入口：${command.entryPath}`);
 }
 
+function appendCommandOutput(chunk: CommandOutputChunk) {
+  if (chunk.commandName !== runningCommandName.value) return;
+
+  if (!runOutput.value || runOutput.value.commandName !== chunk.commandName) {
+    runOutput.value = {
+      commandName: chunk.commandName,
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      status: "running",
+    };
+  }
+
+  if (chunk.stream === "stdout") {
+    runOutput.value.stdout += chunk.text;
+  } else {
+    runOutput.value.stderr += chunk.text;
+  }
+}
+
 async function runCommand(command: RegisteredCommand) {
   if (runningCommandName.value) return;
 
   runningCommandName.value = command.name;
+  runOutput.value = {
+    commandName: command.name,
+    exitCode: null,
+    stdout: "",
+    stderr: "",
+    status: "running",
+  };
+
   try {
     const result = await invoke<CommandRunResult>("run_registered_command", {
       commandName: command.name,
     });
-    lastRunResult.value = result;
+    runOutput.value = {
+      ...result,
+      status: result.exitCode === 0 ? "success" : "failed",
+    };
 
     if (result.exitCode === 0) {
       pushToast("success", `${command.name} 执行完成。`);
@@ -192,6 +233,19 @@ async function deleteCommand() {
 onMounted(() => {
   void refreshPathStatus();
   void refreshRegisteredCommands();
+  void listen<CommandOutputChunk>("command-output", (event) => {
+    appendCommandOutput(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandOutput = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令输出失败：${String(error)}`);
+    });
+});
+
+onBeforeUnmount(() => {
+  unlistenCommandOutput?.();
 });
 </script>
 
@@ -219,7 +273,7 @@ onMounted(() => {
           :path-tone="pathTone"
           :commands="commands"
           :running-command-name="runningCommandName"
-          :last-run-result="lastRunResult"
+          :run-output="runOutput"
           @register="registerCommand"
           @refresh="refreshCommands"
           @copy-path="copyPathCommand"

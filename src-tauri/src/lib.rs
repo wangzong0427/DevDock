@@ -1,10 +1,14 @@
 use serde::Serialize;
 use std::{
     env, fs,
+    io::Read,
     path::{Path, PathBuf},
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Stdio},
+    sync::mpsc::{self, Sender},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tauri::{AppHandle, Emitter};
 
 const DEVDOC_MARKER: &str = "DevDock managed command";
 const COMMAND_NAME_META: &str = "devdock-command-name:";
@@ -40,6 +44,14 @@ struct CommandRunResultResponse {
     stderr: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandOutputChunkResponse {
+    command_name: String,
+    stream: String,
+    text: String,
+}
+
 #[tauri::command]
 fn get_path_status() -> PathStatusResponse {
     let bin_dir = recommended_bin_dir();
@@ -51,32 +63,73 @@ fn get_path_status() -> PathStatusResponse {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn register_command(
+async fn register_command(
     script_path: String,
     command_name: String,
 ) -> Result<RegisteredCommandResponse, String> {
     let created_at = current_timestamp();
-    create_registered_command(
-        &PathBuf::from(script_path),
-        &command_name,
-        &recommended_bin_dir(),
-        &created_at,
-    )
+    let script_path = PathBuf::from(script_path);
+    let bin_dir = recommended_bin_dir();
+
+    run_blocking_task(move || {
+        create_registered_command(&script_path, &command_name, &bin_dir, &created_at)
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_registered_commands() -> Result<Vec<RegisteredCommandResponse>, String> {
-    list_registered_commands_in_dir(&recommended_bin_dir())
+async fn list_registered_commands() -> Result<Vec<RegisteredCommandResponse>, String> {
+    let bin_dir = recommended_bin_dir();
+    run_blocking_task(move || list_registered_commands_in_dir(&bin_dir)).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn delete_registered_command(command_name: String) -> Result<(), String> {
-    delete_registered_command_in_dir(&command_name, &recommended_bin_dir())
+async fn delete_registered_command(command_name: String) -> Result<(), String> {
+    let bin_dir = recommended_bin_dir();
+    run_blocking_task(move || delete_registered_command_in_dir(&command_name, &bin_dir)).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn run_registered_command(command_name: String) -> Result<CommandRunResultResponse, String> {
-    run_registered_command_in_dir(&command_name, &recommended_bin_dir())
+async fn run_registered_command(
+    app: AppHandle,
+    command_name: String,
+) -> Result<CommandRunResultResponse, String> {
+    let bin_dir = recommended_bin_dir();
+    let event_command_name = command_name.clone();
+    spawn_registered_command_run(command_name, bin_dir, move |stream, text| {
+        let _ = app.emit(
+            "command-output",
+            CommandOutputChunkResponse {
+                command_name: event_command_name.clone(),
+                stream: stream.to_string(),
+                text: text.to_string(),
+            },
+        );
+    })
+    .await
+    .map_err(|error| format!("后台任务执行失败：{error}"))?
+}
+
+async fn run_blocking_task<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("后台任务执行失败：{error}"))?
+}
+
+fn spawn_registered_command_run(
+    command_name: String,
+    bin_dir: PathBuf,
+    mut on_output: impl FnMut(&str, &str) + Send + 'static,
+) -> tauri::async_runtime::JoinHandle<Result<CommandRunResultResponse, String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_registered_command_streaming_in_dir(&command_name, &bin_dir, |stream, text| {
+            on_output(stream, text);
+        })
+    })
 }
 
 fn build_path_status(bin_dir: PathBuf, paths: Vec<PathBuf>) -> PathStatusResponse {
@@ -246,9 +299,18 @@ fn delete_registered_command_in_dir(command_name: &str, bin_dir: &Path) -> Resul
     fs::remove_file(&entry_path).map_err(|error| format!("命令入口删除失败：{error}"))
 }
 
+#[cfg(test)]
 fn run_registered_command_in_dir(
     command_name: &str,
     bin_dir: &Path,
+) -> Result<CommandRunResultResponse, String> {
+    run_registered_command_streaming_in_dir(command_name, bin_dir, |_stream, _text| {})
+}
+
+fn run_registered_command_streaming_in_dir(
+    command_name: &str,
+    bin_dir: &Path,
+    mut on_output: impl FnMut(&str, &str),
 ) -> Result<CommandRunResultResponse, String> {
     validate_command_name(command_name)?;
 
@@ -261,16 +323,115 @@ fn run_registered_command_in_dir(
         return Err("不会执行非 DevDock 生成的入口。".to_string());
     }
 
-    let output = Command::new(&entry_path)
-        .output()
+    let mut child = Command::new(&entry_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("命令执行失败：{error}"))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "命令标准输出读取失败。".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "命令错误输出读取失败。".to_string())?;
+    let (sender, receiver) = mpsc::channel::<(String, String)>();
+    let stdout_handle = spawn_output_reader(stdout, "stdout", sender.clone());
+    let stderr_handle = spawn_output_reader(stderr, "stderr", sender);
+
+    let mut stdout_text = String::new();
+    let mut stderr_text = String::new();
+    let mut exit_status = None;
+
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(20)) {
+            Ok((stream, text)) => {
+                if stream == "stdout" {
+                    stdout_text.push_str(&text);
+                } else {
+                    stderr_text.push_str(&text);
+                }
+                on_output(&stream, &text);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if exit_status.is_none() {
+                    exit_status = Some(
+                        child
+                            .wait()
+                            .map_err(|error| format!("命令状态读取失败：{error}"))?,
+                    );
+                }
+                break;
+            }
+        }
+
+        if exit_status.is_none() {
+            exit_status = child
+                .try_wait()
+                .map_err(|error| format!("命令状态读取失败：{error}"))?;
+        }
+    }
+
+    stdout_handle
+        .join()
+        .map_err(|_| "标准输出读取线程异常退出。".to_string())??;
+    stderr_handle
+        .join()
+        .map_err(|_| "错误输出读取线程异常退出。".to_string())??;
+
+    let status = match exit_status {
+        Some(status) => status,
+        None => child
+            .wait()
+            .map_err(|error| format!("命令状态读取失败：{error}"))?,
+    };
 
     Ok(CommandRunResultResponse {
         command_name: command_name.to_string(),
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        exit_code: status.code(),
+        stdout: stdout_text,
+        stderr: stderr_text,
     })
+}
+
+fn spawn_output_reader<R>(
+    reader: R,
+    stream: &'static str,
+    sender: Sender<(String, String)>,
+) -> thread::JoinHandle<Result<(), String>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || read_output_chunks(reader, stream, sender))
+}
+
+fn read_output_chunks<R>(
+    mut reader: R,
+    stream: &'static str,
+    sender: Sender<(String, String)>,
+) -> Result<(), String>
+where
+    R: Read,
+{
+    let mut buffer = [0; 4096];
+    loop {
+        let read_count = reader
+            .read(&mut buffer)
+            .map_err(|error| format!("命令输出读取失败：{error}"))?;
+        if read_count == 0 {
+            break;
+        }
+
+        let text = String::from_utf8_lossy(&buffer[..read_count]).into_owned();
+        sender
+            .send((stream.to_string(), text))
+            .map_err(|error| format!("命令输出发送失败：{error}"))?;
+    }
+
+    Ok(())
 }
 
 fn metadata_value(content: &str, key: &str) -> Option<String> {
@@ -424,7 +585,7 @@ mod tests {
         fs,
         path::PathBuf,
         process::Command,
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     #[test]
@@ -640,6 +801,82 @@ mod tests {
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(result.stdout, "hello\n");
         assert_eq!(result.stderr, "");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn starts_registered_command_run_without_waiting_for_process_exit() {
+        let temp_dir = unique_test_dir("run-background");
+        let bin_dir = temp_dir.join("bin");
+        let script_path = temp_dir.join("slow.sh");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(&script_path, "#!/bin/sh\nsleep 0.2\necho done\n").unwrap();
+        create_registered_command(&script_path, "slow", &bin_dir, "1700000000")
+            .expect("register command");
+
+        let started_at = Instant::now();
+        let run_handle =
+            spawn_registered_command_run("slow".to_string(), bin_dir.clone(), |_stream, _text| {});
+
+        assert!(
+            started_at.elapsed() < Duration::from_millis(100),
+            "spawning a command run should not wait for the process to exit"
+        );
+
+        let result = tauri::async_runtime::block_on(run_handle)
+            .expect("join command task")
+            .expect("run command");
+        assert_eq!(result.stdout, "done\n");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn streams_stdout_before_registered_command_exits() {
+        let temp_dir = unique_test_dir("run-streaming");
+        let bin_dir = temp_dir.join("bin");
+        let script_path = temp_dir.join("stream.sh");
+        let marker_path = temp_dir.join("stdout-seen");
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(
+            &script_path,
+            format!(
+                "#!/bin/sh\n\
+                 echo first\n\
+                 i=0\n\
+                 while [ \"$i\" -lt 50 ]; do\n\
+                 \tif [ -f {} ]; then\n\
+                 \t\techo second\n\
+                 \t\texit 0\n\
+                 \tfi\n\
+                 \ti=$((i + 1))\n\
+                 \tsleep 0.1\n\
+                 done\n\
+                 echo timeout >&2\n\
+                 exit 9\n",
+                shell_single_quote(&marker_path)
+            ),
+        )
+        .unwrap();
+        create_registered_command(&script_path, "stream", &bin_dir, "1700000000")
+            .expect("register command");
+
+        let mut first_chunk_at = None;
+        let result = run_registered_command_streaming_in_dir("stream", &bin_dir, |stream, text| {
+            if stream == "stdout" && text == "first\n" && first_chunk_at.is_none() {
+                first_chunk_at = Some(Instant::now());
+                fs::write(&marker_path, "seen").unwrap();
+            }
+        })
+        .expect("run command");
+
+        assert_eq!(result.stdout, "first\nsecond\n");
+        assert_eq!(result.exit_code, Some(0));
+        assert!(first_chunk_at.is_some());
+        assert!(marker_path.exists());
 
         let _ = fs::remove_dir_all(temp_dir);
     }

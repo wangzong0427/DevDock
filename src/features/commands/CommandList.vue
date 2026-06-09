@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { VideoPlay } from "@element-plus/icons-vue";
-import type { CommandRunResult, EntryType, RegisteredCommand } from "../../types";
+import type { EntryType, RegisteredCommand } from "../../types";
 
 defineProps<{
   commands: RegisteredCommand[];
   runningCommandName: string | null;
-  lastRunResult: CommandRunResult | null;
 }>();
 
 const emit = defineEmits<{
@@ -25,12 +24,6 @@ function entryTypeTag(type: EntryType) {
   if (type === "symlink") return "primary";
   if (type === "wrapper") return "success";
   return "info";
-}
-
-function exitLabel(result: CommandRunResult) {
-  return result.exitCode === null || result.exitCode === undefined
-    ? "未返回退出码"
-    : `退出码 ${result.exitCode}`;
 }
 </script>
 
@@ -75,27 +68,5 @@ function exitLabel(result: CommandRunResult) {
     <el-empty v-else class="command-empty" description="还没有注册命令">
       <span>选择一个脚本，创建第一个终端快捷命令。</span>
     </el-empty>
-
-    <section v-if="lastRunResult" class="command-run-result" aria-label="最近一次执行结果">
-      <div class="run-result-header">
-        <div>
-          <strong>{{ lastRunResult.commandName }}</strong>
-          <span>{{ exitLabel(lastRunResult) }}</span>
-        </div>
-        <el-tag :type="lastRunResult.exitCode === 0 ? 'success' : 'danger'" effect="light">
-          {{ lastRunResult.exitCode === 0 ? "执行成功" : "执行失败" }}
-        </el-tag>
-      </div>
-      <div class="run-output-grid">
-        <div class="run-output">
-          <span>标准输出</span>
-          <pre>{{ lastRunResult.stdout || "无输出" }}</pre>
-        </div>
-        <div class="run-output">
-          <span>错误输出</span>
-          <pre>{{ lastRunResult.stderr || "无输出" }}</pre>
-        </div>
-      </div>
-    </section>
   </el-card>
 </template>

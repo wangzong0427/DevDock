@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Refresh } from "@element-plus/icons-vue";
-import type { CommandRunResult, PathStatus, RegisteredCommand } from "../../types";
+import type { CommandRunOutput, PathStatus, RegisteredCommand } from "../../types";
 import CommandList from "./CommandList.vue";
+import CommandOutputPanel from "./CommandOutputPanel.vue";
 import PathStatusPanel from "./PathStatusPanel.vue";
 import RegisterCommandPanel from "./RegisterCommandPanel.vue";
 
@@ -17,7 +18,7 @@ defineProps<{
   pathTone: string;
   commands: RegisteredCommand[];
   runningCommandName: string | null;
-  lastRunResult: CommandRunResult | null;
+  runOutput: CommandRunOutput | null;
 }>();
 
 const emit = defineEmits<{
@@ -44,27 +45,32 @@ const emit = defineEmits<{
       </el-button>
     </header>
 
-    <RegisterCommandPanel
-      :script-path="scriptPath"
-      :command-name="commandName"
-      :command-name-error="commandNameError"
-      :entry-preview="entryPreview"
-      :can-register="canRegister"
-      :is-registering="isRegistering"
-      @update:script-path="emit('update:scriptPath', $event)"
-      @update:command-name="emit('update:commandName', $event)"
-      @register="emit('register')"
-    />
+    <div class="commands-layout">
+      <div class="commands-main">
+        <RegisterCommandPanel
+          :script-path="scriptPath"
+          :command-name="commandName"
+          :command-name-error="commandNameError"
+          :entry-preview="entryPreview"
+          :can-register="canRegister"
+          :is-registering="isRegistering"
+          @update:script-path="emit('update:scriptPath', $event)"
+          @update:command-name="emit('update:commandName', $event)"
+          @register="emit('register')"
+        />
 
-    <PathStatusPanel :path-status="pathStatus" :path-tone="pathTone" @copy="emit('copyPath')" />
+        <PathStatusPanel :path-status="pathStatus" :path-tone="pathTone" @copy="emit('copyPath')" />
 
-    <CommandList
-      :commands="commands"
-      :running-command-name="runningCommandName"
-      :last-run-result="lastRunResult"
-      @run="emit('runCommand', $event)"
-      @reveal="emit('revealCommand', $event)"
-      @delete="emit('requestDelete', $event)"
-    />
+        <CommandList
+          :commands="commands"
+          :running-command-name="runningCommandName"
+          @run="emit('runCommand', $event)"
+          @reveal="emit('revealCommand', $event)"
+          @delete="emit('requestDelete', $event)"
+        />
+      </div>
+
+      <CommandOutputPanel :run-output="runOutput" :running-command-name="runningCommandName" />
+    </div>
   </section>
 </template>

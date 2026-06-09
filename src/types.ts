@@ -28,3 +28,15 @@ export type CommandRunResult = {
   stdout: string;
   stderr: string;
 };
+
+export type CommandOutputStream = "stdout" | "stderr";
+
+export type CommandOutputChunk = {
+  commandName: string;
+  stream: CommandOutputStream;
+  text: string;
+};
+
+export type CommandRunOutput = CommandRunResult & {
+  status: "running" | "success" | "failed";
+};
