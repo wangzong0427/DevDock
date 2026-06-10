@@ -53,16 +53,17 @@ jobs:
           node-version: "lts/*"
           cache: npm
 
-      - name: 校验 tag 版本
+      - name: 应用 tag 版本
         shell: bash
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          APP_VERSION="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+          set -euo pipefail
 
-          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
-            echo "tag 版本 ${TAG_VERSION} 与 src-tauri/tauri.conf.json 版本 ${APP_VERSION} 不一致，停止发布。"
-            exit 1
-          fi
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          npm run version:set -- "$TAG_VERSION"
+          echo "RELEASE_VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+
+          echo "已按 tag ${GITHUB_REF_NAME} 临时更新发布版本为 ${TAG_VERSION}。"
+          git diff -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
 
       - name: 校验更新签名密钥
         shell: bash

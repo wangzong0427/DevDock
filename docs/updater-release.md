@@ -91,7 +91,7 @@ gh secret set APPLE_CERTIFICATE < certificate-base64.txt
 
 ## 发布版本
 
-`src-tauri/tauri.conf.json` 里的 `version` 必须和 tag 版本一致。tag 可以带 `v` 前缀。
+发布版本以 tag 为准，tag 可以带 `v` 前缀。CI 会在临时 checkout 的工作区里执行 `npm run version:set -- <tag 版本>`，把 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 的版本临时改成 tag 对应版本再构建；这些版本号变更不需要提前提交到仓库。
 
 示例：
 
@@ -103,10 +103,10 @@ git push origin v0.1.0
 workflow 会校验：
 
 - tag 指向的提交必须在 `origin/master` 上。
-- tag 版本必须等于 `src-tauri/tauri.conf.json` 的版本。
+- tag 版本必须是 `0.1.6` 这类 SemVer 格式；可以带 `v` 前缀。
 - `TAURI_SIGNING_PRIVATE_KEY` 必须存在。
 
-通过校验后，workflow 会构建 macOS、Windows 和 Linux 产物，创建或更新对应 tag 的 GitHub Release，并上传安装包、updater 包、签名文件和 `latest.json`。
+通过校验后，workflow 会按 tag 版本构建 macOS、Windows 和 Linux 产物，创建或更新对应 tag 的 GitHub Release，并上传安装包、updater 包、签名文件和 `latest.json`。
 
 ## 本地验证
 
