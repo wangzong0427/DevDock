@@ -8,7 +8,7 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 #[cfg(desktop)]
 use tauri::{
@@ -940,6 +940,14 @@ pub fn run() {
             setup_tray(app.handle()).map_err(|error| Box::<dyn std::error::Error>::from(error))?;
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_path_status,
             register_command,
@@ -947,8 +955,14 @@ pub fn run() {
             delete_registered_command,
             run_registered_command
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Reopen { .. } = event {
+                show_main_window(app);
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1185,6 +1199,62 @@ mod tests {
         assert!(
             !setup_tray_source.contains("default_window_icon"),
             "状态栏图标必须使用透明的 template 专用图标，不能复用彩色应用图标。"
+        );
+    }
+
+    #[test]
+    fn close_request_hides_main_window_instead_of_exiting() {
+        let source = include_str!("lib.rs");
+        let run_start = source
+            .find("#[cfg_attr(mobile, tauri::mobile_entry_point)]")
+            .expect("run function exists");
+        let tests_start = source[run_start..]
+            .find("#[cfg(test)]")
+            .map(|index| run_start + index)
+            .expect("test module exists");
+        let run_source = &source[run_start..tests_start];
+
+        assert!(
+            run_source.contains(".on_window_event("),
+            "应用必须监听窗口关闭事件，避免默认关闭后退出进程。"
+        );
+        assert!(
+            run_source.contains("WindowEvent::CloseRequested"),
+            "应用必须处理 CloseRequested 事件。"
+        );
+        assert!(
+            run_source.contains("api.prevent_close()"),
+            "点击窗口关闭时必须阻止真实关闭。"
+        );
+        assert!(
+            run_source.contains(".hide()"),
+            "点击窗口关闭时必须隐藏窗口，让应用后台常驻。"
+        );
+    }
+
+    #[test]
+    fn dock_reopen_event_shows_main_window() {
+        let source = include_str!("lib.rs");
+        let run_start = source
+            .find("#[cfg_attr(mobile, tauri::mobile_entry_point)]")
+            .expect("run function exists");
+        let tests_start = source[run_start..]
+            .find("#[cfg(test)]")
+            .map(|index| run_start + index)
+            .expect("test module exists");
+        let run_source = &source[run_start..tests_start];
+
+        assert!(
+            run_source.contains(".build(tauri::generate_context!())"),
+            "应用必须显式 build 后运行，才能处理 Dock 重新打开事件。"
+        );
+        assert!(
+            run_source.contains("RunEvent::Reopen"),
+            "点击 Dock 图标时必须处理 Reopen 事件。"
+        );
+        assert!(
+            run_source.contains("show_main_window(app)"),
+            "点击 Dock 图标时必须重新显示主窗口。"
         );
     }
 
