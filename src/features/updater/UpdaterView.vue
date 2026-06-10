@@ -7,6 +7,7 @@ import { computed, ref } from "vue";
 import {
   checkForUpdate,
   installUpdate,
+  keepUpdatePackageRaw,
   type UpdateCheckResult,
   type UpdatePackage,
 } from "./updateService";
@@ -56,7 +57,7 @@ async function checkUpdates() {
     });
 
     checkResult.value = result;
-    availableUpdate.value = checkedUpdate;
+    availableUpdate.value = keepUpdatePackageRaw(checkedUpdate);
     showMessage(result.available ? "success" : "info", result.message);
   } catch (error) {
     checkResult.value = null;

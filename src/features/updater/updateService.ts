@@ -1,3 +1,5 @@
+import { markRaw } from "vue";
+
 export type UpdateDownloadEvent =
   | { event: "Started"; data: { contentLength?: number } }
   | { event: "Progress"; data: { chunkLength: number } }
@@ -29,6 +31,10 @@ export type UpdateCheckResult =
       date?: string;
       message: string;
     };
+
+export function keepUpdatePackageRaw(update: UpdatePackage | null): UpdatePackage | null {
+  return update ? markRaw(update) : null;
+}
 
 export async function checkForUpdate(dependencies: UpdaterDependencies): Promise<UpdateCheckResult> {
   const update = await dependencies.check();

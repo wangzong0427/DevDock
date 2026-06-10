@@ -80,9 +80,7 @@ struct CommandOutputChunkResponse {
 #[tauri::command]
 fn get_path_status() -> PathStatusResponse {
     let bin_dir = recommended_bin_dir();
-    let paths = env::var_os("PATH")
-        .map(|path| env::split_paths(&path).collect())
-        .unwrap_or_default();
+    let paths = environment_path_entries();
 
     build_path_status(bin_dir, paths)
 }
@@ -426,6 +424,58 @@ fn build_path_status(bin_dir: PathBuf, paths: Vec<PathBuf>) -> PathStatusRespons
         suggested_command,
         paths: path_values,
     }
+}
+
+fn environment_path_entries() -> Vec<PathBuf> {
+    let process_paths = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect())
+        .unwrap_or_default();
+
+    merge_path_entries(process_paths, login_shell_path_entries())
+}
+
+fn merge_path_entries(mut primary: Vec<PathBuf>, secondary: Vec<PathBuf>) -> Vec<PathBuf> {
+    for path in secondary {
+        if !primary.contains(&path) {
+            primary.push(path);
+        }
+    }
+
+    primary
+}
+
+#[cfg(target_os = "macos")]
+fn login_shell_path_entries() -> Vec<PathBuf> {
+    let shell = login_shell_path();
+    let output = Command::new(shell)
+        .arg("-l")
+        .arg("-c")
+        .arg("printf %s \"$PATH\"")
+        .output();
+
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout);
+    env::split_paths(std::ffi::OsStr::new(path.as_ref())).collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn login_shell_path_entries() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
+fn login_shell_path() -> PathBuf {
+    env::var_os("SHELL")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("/bin/zsh"))
 }
 
 #[cfg(target_os = "windows")]
@@ -888,6 +938,27 @@ mod tests {
 
         assert_eq!(status.state, "error");
         assert!(status.suggested_command.is_some());
+    }
+
+    #[test]
+    fn merges_login_shell_path_when_process_path_is_missing_target_dir() {
+        let bin_dir = PathBuf::from("/Users/test/.local/bin");
+        let paths = merge_path_entries(
+            vec![PathBuf::from("/usr/bin")],
+            vec![PathBuf::from("/opt/homebrew/bin"), bin_dir.clone()],
+        );
+
+        let status = build_path_status(bin_dir, paths);
+
+        assert_eq!(status.state, "ok");
+        assert_eq!(
+            status.paths,
+            vec![
+                "/usr/bin".to_string(),
+                "/opt/homebrew/bin".to_string(),
+                "/Users/test/.local/bin".to_string(),
+            ]
+        );
     }
 
     #[test]

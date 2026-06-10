@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { ref } from "vue";
 import {
   checkForUpdate,
+  keepUpdatePackageRaw,
   installUpdate,
   type UpdateDownloadEvent,
   type UpdatePackage,
@@ -76,5 +78,27 @@ describe("updateService", () => {
       "正在下载更新包：25%",
       "更新包安装完成，正在重启应用...",
     ]);
+  });
+
+  it("keeps updater resource instances raw when stored in Vue state", async () => {
+    class PrivateUpdateResource implements UpdatePackage {
+      #rid = 42;
+      version = "0.2.0";
+      currentVersion = "0.1.0";
+
+      async downloadAndInstall(onEvent?: (event: UpdateDownloadEvent) => void) {
+        expect(this.#rid).toBe(42);
+        onEvent?.({ event: "Finished" });
+      }
+    }
+
+    const availableUpdate = ref<UpdatePackage | null>(null);
+    availableUpdate.value = keepUpdatePackageRaw(new PrivateUpdateResource());
+    const relaunch = vi.fn(async () => undefined);
+
+    expect(availableUpdate.value).not.toBeNull();
+    await installUpdate(availableUpdate.value!, { relaunch }, vi.fn());
+
+    expect(relaunch).toHaveBeenCalledOnce();
   });
 });
