@@ -8,7 +8,7 @@ https://github.com/wangzong0427/DevDock/releases/latest/download/latest.json
 
 `latest.json` 由 `.github/workflows/release.yml` 中的 `tauri-apps/tauri-action@v0` 生成并上传到 GitHub Release。
 
-## 签名密钥
+## Tauri updater 签名密钥
 
 Tauri updater 要求更新包必须签名。公钥已经写入 `src-tauri/tauri.conf.json`，私钥必须保存在 GitHub Actions Secret 中。
 
@@ -27,6 +27,38 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
 ```
 
 不要把私钥提交到 git。丢失私钥后，已经安装旧版本的用户将无法通过当前公钥验证后续更新包。
+
+## macOS 安装签名
+
+Tauri updater 签名只用于校验更新包完整性，不等于 Apple Gatekeeper 认可的 macOS 应用签名。
+
+当前 `.github/workflows/release.yml` 在没有配置 Apple 签名证书时，会默认写入：
+
+```bash
+APPLE_SIGNING_IDENTITY=-
+```
+
+`-` 表示 ad-hoc 签名。它不需要 Apple Developer 账号，能避免 macOS 把应用当成完全未签名二进制，但不会让 GitHub 下载的 DMG 自动通过 Gatekeeper。用户仍可能需要右键打开，或在“系统设置 > 隐私与安全性”里手动放行。
+
+如果要让下载的 DMG 正常双击安装并减少“已损坏”“无法验证开发者”等提示，需要使用 Apple Developer 的 `Developer ID Application` 证书并完成 notarization。CI 会在配置证书后自动导入临时 keychain，并查找 `Developer ID Application` 签名身份。
+
+需要配置以下 Secrets：
+
+```text
+APPLE_CERTIFICATE
+APPLE_CERTIFICATE_PASSWORD
+APPLE_ID
+APPLE_PASSWORD
+APPLE_TEAM_ID
+KEYCHAIN_PASSWORD
+```
+
+其中 `APPLE_CERTIFICATE` 是导出的 `.p12` 证书 base64 内容：
+
+```bash
+openssl base64 -A -in /path/to/certificate.p12 -out certificate-base64.txt
+gh secret set APPLE_CERTIFICATE < certificate-base64.txt
+```
 
 ## 发布版本
 
