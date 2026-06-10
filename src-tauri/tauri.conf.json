@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "devdock",
+  "productName": "DevDock",
   "version": "0.1.4",
   "identifier": "com.wangqinghua.devdock",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "devdock",
+        "title": "DevDock",
         "width": 1180,
         "height": 720,
         "minWidth": 1180,

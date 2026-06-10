@@ -151,13 +151,29 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: DevDock ${{ github.ref_name }}
-          releaseBody: "DevDock ${{ github.ref_name }} 发布产物。"
+          releaseBody: |
+            DevDock ${{ github.ref_name }} 发布产物。
+
+            macOS 包未配置 Apple Developer ID 时使用 ad-hoc 签名。首次打开如果提示无法验证开发者，请先把 DevDock.app 拖到“应用程序”，再进入“系统设置 > 隐私与安全性”，在页面底部点击 DevDock 对应的“仍要打开/仍然打开”。如果没有看到该按钮，请在 Finder 的“应用程序”中按住 Control 点按 DevDock.app，选择“打开”。
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
           includeUpdaterJson: false
           assetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
           args: ${{ matrix.args }}
+
+      - name: 校验 macOS 应用包
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          EXPECT_ADHOC: ${{ env.APPLE_SIGNING_IDENTITY == '-' && '1' || '0' }}
+        run: |
+          args=()
+          if [ "$EXPECT_ADHOC" = "1" ]; then
+            args+=(--expect-adhoc)
+          fi
+
+          bash scripts/check-macos-unnotarized-release.sh "${args[@]}"
 
   publish-updater-json:
     name: 发布完整 latest.json
@@ -188,9 +204,10 @@ jobs:
 
           const version = process.env.VERSION;
           const baseUrl = process.env.BASE_URL;
+          const assetPrefix = "DevDock";
           const release = {
             version,
-            notes: `DevDock v${version} 发布产物。`,
+            notes: `DevDock v${version} 发布产物。macOS 未配置 Apple Developer ID 时使用 ad-hoc 签名，首次打开需要在系统设置的隐私与安全性中手动放行。`,
             pub_date: new Date().toISOString(),
             platforms: {},
           };
@@ -209,58 +226,58 @@ jobs:
 
           addPlatform(
             "darwin-x86_64",
-            `devdock_${version}_darwin_x64.app.tar.gz`,
-            `devdock_${version}_darwin_x64.app.tar.gz.sig`,
+            `${assetPrefix}_${version}_darwin_x64.app.tar.gz`,
+            `${assetPrefix}_${version}_darwin_x64.app.tar.gz.sig`,
           );
           addPlatform(
             "darwin-x86_64-app",
-            `devdock_${version}_darwin_x64.app.tar.gz`,
-            `devdock_${version}_darwin_x64.app.tar.gz.sig`,
+            `${assetPrefix}_${version}_darwin_x64.app.tar.gz`,
+            `${assetPrefix}_${version}_darwin_x64.app.tar.gz.sig`,
           );
           addPlatform(
             "darwin-aarch64",
-            `devdock_${version}_darwin_aarch64.app.tar.gz`,
-            `devdock_${version}_darwin_aarch64.app.tar.gz.sig`,
+            `${assetPrefix}_${version}_darwin_aarch64.app.tar.gz`,
+            `${assetPrefix}_${version}_darwin_aarch64.app.tar.gz.sig`,
           );
           addPlatform(
             "darwin-aarch64-app",
-            `devdock_${version}_darwin_aarch64.app.tar.gz`,
-            `devdock_${version}_darwin_aarch64.app.tar.gz.sig`,
+            `${assetPrefix}_${version}_darwin_aarch64.app.tar.gz`,
+            `${assetPrefix}_${version}_darwin_aarch64.app.tar.gz.sig`,
           );
           addPlatform(
             "windows-x86_64",
-            `devdock_${version}_windows_x64.msi`,
-            `devdock_${version}_windows_x64.msi.sig`,
+            `${assetPrefix}_${version}_windows_x64.msi`,
+            `${assetPrefix}_${version}_windows_x64.msi.sig`,
           );
           addPlatform(
             "windows-x86_64-msi",
-            `devdock_${version}_windows_x64.msi`,
-            `devdock_${version}_windows_x64.msi.sig`,
+            `${assetPrefix}_${version}_windows_x64.msi`,
+            `${assetPrefix}_${version}_windows_x64.msi.sig`,
           );
           addPlatform(
             "windows-x86_64-nsis",
-            `devdock_${version}_windows_x64-setup.exe`,
-            `devdock_${version}_windows_x64-setup.exe.sig`,
+            `${assetPrefix}_${version}_windows_x64-setup.exe`,
+            `${assetPrefix}_${version}_windows_x64-setup.exe.sig`,
           );
           addPlatform(
             "linux-x86_64",
-            `devdock_${version}_linux_amd64.AppImage`,
-            `devdock_${version}_linux_amd64.AppImage.sig`,
+            `${assetPrefix}_${version}_linux_amd64.AppImage`,
+            `${assetPrefix}_${version}_linux_amd64.AppImage.sig`,
           );
           addPlatform(
             "linux-x86_64-appimage",
-            `devdock_${version}_linux_amd64.AppImage`,
-            `devdock_${version}_linux_amd64.AppImage.sig`,
+            `${assetPrefix}_${version}_linux_amd64.AppImage`,
+            `${assetPrefix}_${version}_linux_amd64.AppImage.sig`,
           );
           addPlatform(
             "linux-x86_64-deb",
-            `devdock_${version}_linux_amd64.deb`,
-            `devdock_${version}_linux_amd64.deb.sig`,
+            `${assetPrefix}_${version}_linux_amd64.deb`,
+            `${assetPrefix}_${version}_linux_amd64.deb.sig`,
           );
           addPlatform(
             "linux-x86_64-rpm",
-            `devdock_${version}_linux_x86_64.rpm`,
-            `devdock_${version}_linux_x86_64.rpm.sig`,
+            `${assetPrefix}_${version}_linux_x86_64.rpm`,
+            `${assetPrefix}_${version}_linux_x86_64.rpm.sig`,
           );
 
           fs.writeFileSync("latest.json", `${JSON.stringify(release, null, 2)}\n`);

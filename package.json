@@ -9,7 +9,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build-dmg": "tauri build --bundles dmg"
+    "build-dmg": "APPLE_SIGNING_IDENTITY=- tauri build --bundles dmg",
+    "check:macos-release": "bash scripts/check-macos-unnotarized-release.sh --expect-adhoc"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

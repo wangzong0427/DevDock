@@ -38,7 +38,36 @@ Tauri updater 签名只用于校验更新包完整性，不等于 Apple Gatekeep
 APPLE_SIGNING_IDENTITY=-
 ```
 
-`-` 表示 ad-hoc 签名。它不需要 Apple Developer 账号，能避免 macOS 把应用当成完全未签名二进制，但不会让 GitHub 下载的 DMG 自动通过 Gatekeeper。用户仍可能需要右键打开，或在“系统设置 > 隐私与安全性”里手动放行。
+`-` 表示 ad-hoc 签名。它不需要 Apple Developer 账号，能避免 macOS 把应用当成完全未签名二进制，但不会让 GitHub 下载的 DMG 自动通过 Gatekeeper。用户首次打开时仍需要在“系统设置 > 隐私与安全性”里手动放行，或在 Finder 中按住 Control 点按应用后选择“打开”。
+
+没有 Apple Developer ID 时，项目目标是：
+
+- `.app` 包结构和 `Info.plist` 正确，让 Finder、LaunchServices 和 Spotlight 能把它识别为应用。
+- 应用包通过 `codesign --verify --deep --strict`，避免出现“已损坏”或签名内部错误。
+- GitHub 下载后保留 macOS 的 Gatekeeper 提示，让用户通过系统设置手动放行。
+
+不能承诺的是：
+
+- 不能让 macOS 显示“已验证开发者”。
+- 不能跳过首次打开的 Gatekeeper 警告。
+- 不能保证所有 macOS 版本都只出现同一个按钮文案；常见文案包括“仍要打开”“仍然打开”或 Finder 右键打开确认。
+
+面向用户的 macOS 安装说明应写成：
+
+1. 下载 `DevDock_版本_darwin_架构.dmg`。
+2. 打开 DMG，把 `DevDock.app` 拖到“应用程序”。
+3. 从“应用程序”里首次打开 `DevDock.app`。
+4. 如果提示无法验证开发者，进入“系统设置 > 隐私与安全性”，在页面底部点击 `DevDock` 对应的“仍要打开/仍然打开”。
+5. 如果系统设置里没有按钮，在 Finder 的“应用程序”中按住 Control 点按 `DevDock.app`，选择“打开”，再确认打开。
+
+发布前在 macOS 上执行：
+
+```bash
+npm run build-dmg
+npm run check:macos-release
+```
+
+CI 在 macOS Release 构建后也会运行 `scripts/check-macos-unnotarized-release.sh`。当没有配置 Apple 证书时，脚本会要求产物是 ad-hoc 签名，并检查应用包、签名和 DMG 完整性。
 
 如果要让下载的 DMG 正常双击安装并减少“已损坏”“无法验证开发者”等提示，需要使用 Apple Developer 的 `Developer ID Application` 证书并完成 notarization。CI 会在配置证书后自动导入临时 keychain，并查找 `Developer ID Application` 签名身份。
 
