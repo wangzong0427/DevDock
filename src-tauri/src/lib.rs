@@ -431,7 +431,11 @@ fn environment_path_entries() -> Vec<PathBuf> {
         .map(|path| env::split_paths(&path).collect())
         .unwrap_or_default();
 
-    merge_path_entries(process_paths, login_shell_path_entries())
+    merge_path_entry_sources(vec![
+        process_paths,
+        login_shell_path_entries(),
+        interactive_login_shell_path_entries(),
+    ])
 }
 
 fn merge_path_entries(mut primary: Vec<PathBuf>, secondary: Vec<PathBuf>) -> Vec<PathBuf> {
@@ -444,14 +448,26 @@ fn merge_path_entries(mut primary: Vec<PathBuf>, secondary: Vec<PathBuf>) -> Vec
     primary
 }
 
+fn merge_path_entry_sources(sources: Vec<Vec<PathBuf>>) -> Vec<PathBuf> {
+    sources.into_iter().fold(Vec::new(), |entries, source| {
+        merge_path_entries(entries, source)
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn login_shell_path_entries() -> Vec<PathBuf> {
+    shell_path_entries(&["-l", "-c", "printf %s \"$PATH\""])
+}
+
+#[cfg(target_os = "macos")]
+fn interactive_login_shell_path_entries() -> Vec<PathBuf> {
+    shell_path_entries(&["-l", "-i", "-c", "printf %s \"$PATH\""])
+}
+
+#[cfg(target_os = "macos")]
+fn shell_path_entries(args: &[&str]) -> Vec<PathBuf> {
     let shell = login_shell_path();
-    let output = Command::new(shell)
-        .arg("-l")
-        .arg("-c")
-        .arg("printf %s \"$PATH\"")
-        .output();
+    let output = Command::new(shell).args(args).output();
 
     let Ok(output) = output else {
         return Vec::new();
@@ -466,6 +482,11 @@ fn login_shell_path_entries() -> Vec<PathBuf> {
 
 #[cfg(not(target_os = "macos"))]
 fn login_shell_path_entries() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn interactive_login_shell_path_entries() -> Vec<PathBuf> {
     Vec::new()
 }
 
@@ -957,6 +978,29 @@ mod tests {
                 "/usr/bin".to_string(),
                 "/opt/homebrew/bin".to_string(),
                 "/Users/test/.local/bin".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn merges_interactive_login_shell_path_when_login_shell_is_missing_target_dir() {
+        let bin_dir = PathBuf::from("/Users/test/.local/bin");
+        let paths = merge_path_entry_sources(vec![
+            vec![PathBuf::from("/usr/bin")],
+            vec![PathBuf::from("/opt/homebrew/bin")],
+            vec![bin_dir.clone(), PathBuf::from("/Users/test/.cargo/bin")],
+        ]);
+
+        let status = build_path_status(bin_dir, paths);
+
+        assert_eq!(status.state, "ok");
+        assert_eq!(
+            status.paths,
+            vec![
+                "/usr/bin".to_string(),
+                "/opt/homebrew/bin".to_string(),
+                "/Users/test/.local/bin".to_string(),
+                "/Users/test/.cargo/bin".to_string(),
             ]
         );
     }

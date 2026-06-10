@@ -9,6 +9,7 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
+    "version:set": "node scripts/update-version.mjs",
     "build-dmg": "APPLE_SIGNING_IDENTITY=- tauri build --bundles dmg",
     "check:macos-release": "bash scripts/check-macos-unnotarized-release.sh --expect-adhoc"
   },
