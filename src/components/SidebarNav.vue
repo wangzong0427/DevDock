@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cellphone, Files, Monitor, Operation, WarningFilled } from "@element-plus/icons-vue";
+import { Cellphone, Files, Monitor, Operation, Refresh, WarningFilled } from "@element-plus/icons-vue";
 import type { ActiveModule, PlatformInfo } from "../types";
 
 defineProps<{
@@ -37,6 +37,10 @@ function selectModule(index: string) {
         <el-icon><Cellphone /></el-icon>
         <span>ADB</span>
         <el-tag class="menu-tag" size="small" type="info" round>规划中</el-tag>
+      </el-menu-item>
+      <el-menu-item index="updater">
+        <el-icon><Refresh /></el-icon>
+        <span>更新</span>
       </el-menu-item>
     </el-menu>
 

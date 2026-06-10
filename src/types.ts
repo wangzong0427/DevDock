@@ -1,4 +1,4 @@
-export type ActiveModule = "commands" | "adb";
+export type ActiveModule = "commands" | "adb" | "updater";
 export type PathState = "checking" | "ok" | "missing" | "error";
 export type EntryType = "symlink" | "wrapper" | "cmd-shim" | "ps1-shim";
 

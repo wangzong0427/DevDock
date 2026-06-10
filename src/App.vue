@@ -7,6 +7,7 @@ import ConfirmDialog from "./components/ConfirmDialog.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import AdbView from "./features/adb/AdbView.vue";
 import CommandsView from "./features/commands/CommandsView.vue";
+import UpdaterView from "./features/updater/UpdaterView.vue";
 import type {
   ActiveModule,
   CommandOutputChunk,
@@ -357,7 +358,8 @@ onBeforeUnmount(() => {
           @reveal-command="revealCommand"
           @request-delete="commandToDelete = $event"
         />
-        <AdbView v-else />
+        <AdbView v-else-if="activeModule === 'adb'" />
+        <UpdaterView v-else />
       </el-main>
     </el-container>
 

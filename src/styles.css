@@ -183,6 +183,16 @@ input {
   overflow: hidden;
 }
 
+.updates-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(10px, 2vh, 18px);
+  width: 100%;
+  max-width: 920px;
+  min-width: 0;
+  min-height: 0;
+}
+
 .commands-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(340px, 0.72fr);
@@ -243,27 +253,80 @@ input {
 .path-card,
 .command-section,
 .command-output-panel,
-.adb-view {
+.adb-view,
+.update-card {
   border-radius: 8px;
 }
 
 .register-card,
 .path-card,
 .command-section,
-.command-output-panel {
+.command-output-panel,
+.update-card {
   min-width: 0;
   overflow: hidden;
 }
 
 .register-card .el-card__header,
 .command-section .el-card__header,
-.command-output-panel .el-card__header {
+.command-output-panel .el-card__header,
+.update-card .el-card__header {
   padding: clamp(12px, 2vh, 18px) clamp(14px, 2vw, 20px);
 }
 
 .register-card .el-card__body,
-.path-card .el-card__body {
+.path-card .el-card__body,
+.update-card .el-card__body {
   padding: clamp(12px, 2vh, 18px) clamp(14px, 2vw, 20px);
+}
+
+.update-content {
+  display: grid;
+  gap: 18px;
+}
+
+.update-message {
+  margin: 0;
+  color: var(--devdock-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.update-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.update-meta div {
+  min-width: 0;
+  border: 1px solid var(--devdock-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.update-meta dt {
+  color: var(--devdock-muted);
+  font-size: 13px;
+}
+
+.update-meta dd {
+  margin: 6px 0 0;
+  color: var(--devdock-text);
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.update-notes {
+  min-width: 0;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .register-form {
