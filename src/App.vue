@@ -1,160 +1,368 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { ElMessage } from "element-plus";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import ConfirmDialog from "./components/ConfirmDialog.vue";
+import SidebarNav from "./components/SidebarNav.vue";
+import AdbView from "./features/adb/AdbView.vue";
+import CommandsView from "./features/commands/CommandsView.vue";
+import UpdaterView from "./features/updater/UpdaterView.vue";
+import type {
+  ActiveModule,
+  CommandOutputChunk,
+  CommandRunFailed,
+  CommandRunFinished,
+  CommandRunOutput,
+  CommandRunResult,
+  CommandRunStarted,
+  PathStatus,
+  PlatformInfo,
+  RegisteredCommand,
+} from "./types";
 
-const greetMsg = ref("");
-const name = ref("");
+const activeModule = ref<ActiveModule>("commands");
+const platformInfo = ref<PlatformInfo>({ name: "macOS" });
+const pathStatus = ref<PathStatus>({
+  state: "checking",
+  binDir: "",
+  message: "正在读取系统 PATH...",
+  suggestedCommand: "export PATH=\"$HOME/.local/bin:$PATH\"",
+});
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+const scriptPath = ref("");
+const commandName = ref("");
+const isRegistering = ref(false);
+const isRefreshing = ref(false);
+const commandToDelete = ref<RegisteredCommand | null>(null);
+const commands = ref<RegisteredCommand[]>([]);
+const runningCommandName = ref<string | null>(null);
+const runOutput = ref<CommandRunOutput | null>(null);
+let unlistenCommandOutput: UnlistenFn | null = null;
+let unlistenCommandRunStarted: UnlistenFn | null = null;
+let unlistenCommandRunFinished: UnlistenFn | null = null;
+let unlistenCommandRunFailed: UnlistenFn | null = null;
+
+const commandNamePattern = /^[A-Za-z0-9_.-]+$/;
+
+const commandNameError = computed(() => {
+  if (!commandName.value) return "";
+  if (!commandNamePattern.test(commandName.value)) {
+    return "只能使用字母、数字、点、短横线或下划线。";
+  }
+  if (commands.value.some((command) => command.name === commandName.value)) {
+    return "该命令名已存在。";
+  }
+  return "";
+});
+
+const canRegister = computed(() => {
+  return Boolean(scriptPath.value && commandName.value && !commandNameError.value);
+});
+
+const entryPreview = computed(() => {
+  const name = commandName.value || "my-command";
+  if (platformInfo.value.name === "Windows") {
+    return `%LOCALAPPDATA%\\devdock\\bin\\${name}.cmd`;
+  }
+  const binDir = pathStatus.value.binDir || "~/.local/bin";
+  return `${binDir}/${name}`;
+});
+
+const pathTone = computed(() => {
+  if (pathStatus.value.state === "ok") return "ok";
+  if (pathStatus.value.state === "missing") return "warning";
+  if (pathStatus.value.state === "error") return "danger";
+  return "muted";
+});
+
+const pathStatusLabel = computed(() => {
+  if (pathStatus.value.state === "ok") return "PATH 正常";
+  if (pathStatus.value.state === "missing") return "PATH 未配置";
+  if (pathStatus.value.state === "error") return "PATH 异常";
+  return "检查中";
+});
+
+function pushToast(tone: "success" | "error" | "info", text: string) {
+  ElMessage({
+    message: text,
+    type: tone,
+    duration: 2600,
+    showClose: true,
+  });
 }
+
+async function refreshPathStatus() {
+  pathStatus.value = {
+    ...pathStatus.value,
+    state: "checking",
+    message: "正在读取系统 PATH...",
+  };
+
+  try {
+    pathStatus.value = await invoke<PathStatus>("get_path_status");
+  } catch (error) {
+    pathStatus.value = {
+      state: "error",
+      binDir: pathStatus.value.binDir || "~/.local/bin",
+      message: `读取 PATH 失败：${String(error)}`,
+      suggestedCommand: pathStatus.value.suggestedCommand || "export PATH=\"$HOME/.local/bin:$PATH\"",
+      paths: [],
+    };
+    pushToast("error", "读取 PATH 失败。");
+  }
+}
+
+async function refreshRegisteredCommands() {
+  try {
+    commands.value = await invoke<RegisteredCommand[]>("list_registered_commands");
+  } catch (error) {
+    commands.value = [];
+    pushToast("error", `读取命令列表失败：${String(error)}`);
+  }
+}
+
+async function refreshCommands() {
+  isRefreshing.value = true;
+  try {
+    await Promise.all([refreshPathStatus(), refreshRegisteredCommands()]);
+    pushToast("info", "命令列表和 PATH 状态已刷新。");
+  } finally {
+    isRefreshing.value = false;
+  }
+}
+
+async function registerCommand() {
+  if (!canRegister.value) return;
+
+  const name = commandName.value.trim();
+  isRegistering.value = true;
+  try {
+    const registeredCommand = await invoke<RegisteredCommand>("register_command", {
+      scriptPath: scriptPath.value.trim(),
+      commandName: name,
+    });
+    commands.value = [
+      registeredCommand,
+      ...commands.value.filter((command) => command.name !== registeredCommand.name),
+    ];
+    scriptPath.value = "";
+    commandName.value = "";
+    pushToast("success", `已注册 ${name}。`);
+  } catch (error) {
+    pushToast("error", `注册失败：${String(error)}`);
+  } finally {
+    isRegistering.value = false;
+  }
+}
+
+async function copyPathCommand() {
+  const command = pathStatus.value.suggestedCommand || pathStatus.value.binDir;
+  try {
+    await navigator.clipboard.writeText(command);
+    pushToast("success", "PATH 修复命令已复制。");
+  } catch {
+    pushToast("error", "复制失败，请手动选择命令。");
+  }
+}
+
+function revealCommand(command: RegisteredCommand) {
+  pushToast("info", `命令入口：${command.entryPath}`);
+}
+
+function appendCommandOutput(chunk: CommandOutputChunk) {
+  if (chunk.commandName !== runningCommandName.value) return;
+
+  if (!runOutput.value || runOutput.value.commandName !== chunk.commandName) {
+    runOutput.value = {
+      commandName: chunk.commandName,
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      status: "running",
+    };
+  }
+
+  if (chunk.stream === "stdout") {
+    runOutput.value.stdout += chunk.text;
+  } else {
+    runOutput.value.stderr += chunk.text;
+  }
+}
+
+function startCommandRun(event: CommandRunStarted) {
+  activeModule.value = "commands";
+  runningCommandName.value = event.commandName;
+  runOutput.value = {
+    commandName: event.commandName,
+    exitCode: null,
+    stdout: "",
+    stderr: "",
+    status: "running",
+  };
+}
+
+function finishCommandRun(result: CommandRunFinished) {
+  activeModule.value = "commands";
+  runningCommandName.value = null;
+  runOutput.value = {
+    ...result,
+    status: result.exitCode === 0 ? "success" : "failed",
+  };
+
+  if (result.exitCode === 0) {
+    pushToast("success", `${result.commandName} 执行完成。`);
+  } else {
+    pushToast("error", `${result.commandName} 执行失败，退出码：${result.exitCode ?? "未知"}。`);
+  }
+}
+
+function failCommandRun(event: CommandRunFailed) {
+  activeModule.value = "commands";
+  runningCommandName.value = null;
+  runOutput.value = {
+    commandName: event.commandName,
+    exitCode: null,
+    stdout: "",
+    stderr: event.message,
+    status: "failed",
+  };
+  pushToast("error", `${event.commandName} 执行失败。`);
+}
+
+async function runCommand(command: RegisteredCommand) {
+  if (runningCommandName.value) return;
+
+  runningCommandName.value = command.name;
+  runOutput.value = {
+    commandName: command.name,
+    exitCode: null,
+    stdout: "",
+    stderr: "",
+    status: "running",
+  };
+
+  try {
+    const result = await invoke<CommandRunResult>("run_registered_command", {
+      commandName: command.name,
+    });
+    runOutput.value = {
+      ...result,
+      status: result.exitCode === 0 ? "success" : "failed",
+    };
+
+    if (result.exitCode === 0) {
+      pushToast("success", `${command.name} 执行完成。`);
+    } else {
+      pushToast("error", `${command.name} 执行失败，退出码：${result.exitCode ?? "未知"}。`);
+    }
+  } catch (error) {
+    pushToast("error", `执行失败：${String(error)}`);
+  } finally {
+    runningCommandName.value = null;
+  }
+}
+
+async function deleteCommand() {
+  if (!commandToDelete.value) return;
+
+  const deletedName = commandToDelete.value.name;
+  try {
+    await invoke("delete_registered_command", { commandName: deletedName });
+    await refreshRegisteredCommands();
+    commandToDelete.value = null;
+    pushToast("success", `已删除 ${deletedName}。`);
+  } catch (error) {
+    pushToast("error", `删除失败：${String(error)}`);
+  }
+}
+
+onMounted(() => {
+  void refreshPathStatus();
+  void refreshRegisteredCommands();
+  void listen<CommandOutputChunk>("command-output", (event) => {
+    appendCommandOutput(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandOutput = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令输出失败：${String(error)}`);
+    });
+  void listen<CommandRunStarted>("command-run-started", (event) => {
+    startCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunStarted = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令开始事件失败：${String(error)}`);
+    });
+  void listen<CommandRunFinished>("command-run-finished", (event) => {
+    finishCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunFinished = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令完成事件失败：${String(error)}`);
+    });
+  void listen<CommandRunFailed>("command-run-failed", (event) => {
+    failCommandRun(event.payload);
+  })
+    .then((unlisten) => {
+      unlistenCommandRunFailed = unlisten;
+    })
+    .catch((error) => {
+      pushToast("error", `监听命令失败事件失败：${String(error)}`);
+    });
+});
+
+onBeforeUnmount(() => {
+  unlistenCommandOutput?.();
+  unlistenCommandRunStarted?.();
+  unlistenCommandRunFinished?.();
+  unlistenCommandRunFailed?.();
+});
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+  <el-container class="app-shell">
+    <SidebarNav
+      v-model:active-module="activeModule"
+      :platform-info="platformInfo"
+      :path-tone="pathTone"
+      :path-status-label="pathStatusLabel"
+    />
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
-    </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
+    <el-container class="content-shell">
+      <el-main class="workspace">
+        <CommandsView
+          v-if="activeModule === 'commands'"
+          v-model:script-path="scriptPath"
+          v-model:command-name="commandName"
+          :command-name-error="commandNameError"
+          :entry-preview="entryPreview"
+          :can-register="canRegister"
+          :is-registering="isRegistering"
+          :is-refreshing="isRefreshing"
+          :path-status="pathStatus"
+          :path-tone="pathTone"
+          :commands="commands"
+          :running-command-name="runningCommandName"
+          :run-output="runOutput"
+          @register="registerCommand"
+          @refresh="refreshCommands"
+          @copy-path="copyPathCommand"
+          @run-command="runCommand"
+          @reveal-command="revealCommand"
+          @request-delete="commandToDelete = $event"
+        />
+        <AdbView v-else-if="activeModule === 'adb'" />
+        <UpdaterView v-else />
+      </el-main>
+    </el-container>
 
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+    <ConfirmDialog :command="commandToDelete" @cancel="commandToDelete = null" @confirm="deleteCommand" />
+  </el-container>
 </template>
-
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>

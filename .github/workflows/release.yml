@@ -1,0 +1,107 @@
+name: 发布 Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    name: 构建并发布 ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+            rustTargets: ""
+          - platform: windows-latest
+            args: ""
+            rustTargets: ""
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 校验 tag 来源
+        shell: bash
+        run: |
+          git fetch origin master --force
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/master"; then
+            echo "tag ${GITHUB_REF_NAME} 指向的提交不在 origin/master 上，停止发布。"
+            exit 1
+          fi
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: npm
+
+      - name: 校验 tag 版本
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+
+          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
+            echo "tag 版本 ${TAG_VERSION} 与 src-tauri/tauri.conf.json 版本 ${APP_VERSION} 不一致，停止发布。"
+            exit 1
+          fi
+
+      - name: 校验更新签名密钥
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "缺少 GitHub Secret：TAURI_SIGNING_PRIVATE_KEY。"
+            echo "请先把 Tauri updater 私钥内容配置到仓库 Secrets，再重新推送 tag。"
+            exit 1
+          fi
+
+      - name: 安装 Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: 安装 Linux 系统依赖
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建并上传 Release 产物
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: DevDock ${{ github.ref_name }}
+          releaseBody: "DevDock ${{ github.ref_name }} 发布产物。"
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          includeUpdaterJson: true
+          assetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
+          args: ${{ matrix.args }}

@@ -1,0 +1,286 @@
+<style>
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 22px;
+  }
+
+  .logo-card {
+    border: 1px solid #d9dee8;
+    border-radius: 8px;
+    background: #ffffff;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .logo-card:hover {
+    transform: translateY(-2px);
+    border-color: #7aa7ff;
+    box-shadow: 0 14px 34px rgba(31, 35, 41, 0.12);
+  }
+
+  .logo-stage {
+    display: grid;
+    place-items: center;
+    min-height: 230px;
+    background:
+      linear-gradient(135deg, rgba(245, 247, 251, 0.96), rgba(233, 238, 247, 0.96));
+  }
+
+  .app-icon,
+  .mini {
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.75),
+      0 24px 52px rgba(19, 27, 43, 0.2);
+  }
+
+  .app-icon {
+    width: 132px;
+    height: 132px;
+    border-radius: 30px;
+  }
+
+  .dockmark {
+    background:
+      radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.24), transparent 26%),
+      linear-gradient(145deg, #1f6feb 8%, #18b98f 100%);
+  }
+
+  .dockmark::before {
+    content: "";
+    position: absolute;
+    left: 33px;
+    top: 27px;
+    width: 48px;
+    height: 48px;
+    border: 11px solid rgba(255, 255, 255, 0.93);
+    border-radius: 10px 25px 25px 10px;
+    background: transparent;
+  }
+
+  .dockmark::after {
+    content: "";
+    position: absolute;
+    left: 31px;
+    right: 31px;
+    bottom: 24px;
+    height: 15px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .terminalmark {
+    background: linear-gradient(145deg, #20242b, #3b4350);
+  }
+
+  .terminalmark::before {
+    content: ">";
+    position: absolute;
+    left: 27px;
+    top: 36px;
+    color: #5eead4;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 58px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .terminalmark::after {
+    content: "";
+    position: absolute;
+    left: 69px;
+    top: 84px;
+    width: 35px;
+    height: 9px;
+    border-radius: 5px;
+    background: #ffffff;
+  }
+
+  .stackmark {
+    background: linear-gradient(145deg, #2d6cdf, #6bd3a9);
+  }
+
+  .stackmark span,
+  .stackmark::before,
+  .stackmark::after {
+    content: "";
+    position: absolute;
+    left: 31px;
+    right: 31px;
+    height: 18px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+
+  .stackmark::before {
+    top: 39px;
+  }
+
+  .stackmark span {
+    top: 58px;
+    opacity: 0.82;
+  }
+
+  .stackmark::after {
+    top: 77px;
+    opacity: 0.68;
+  }
+
+  .mini-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .mini {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+
+  .mini.dockmark::before {
+    left: 7px;
+    top: 6px;
+    width: 9px;
+    height: 9px;
+    border-width: 3px;
+    border-radius: 3px 7px 7px 3px;
+  }
+
+  .mini.dockmark::after {
+    left: 7px;
+    right: 7px;
+    bottom: 6px;
+    height: 3px;
+    border-radius: 2px;
+  }
+
+  .mini.terminalmark::before {
+    left: 6px;
+    top: 6px;
+    font-size: 13px;
+  }
+
+  .mini.terminalmark::after {
+    left: 16px;
+    top: 18px;
+    width: 7px;
+    height: 2px;
+  }
+
+  .mini.stackmark span,
+  .mini.stackmark::before,
+  .mini.stackmark::after {
+    left: 7px;
+    right: 7px;
+    height: 4px;
+    border-radius: 2px;
+  }
+
+  .mini.stackmark::before {
+    top: 8px;
+  }
+
+  .mini.stackmark span {
+    top: 12px;
+  }
+
+  .mini.stackmark::after {
+    top: 16px;
+  }
+
+  .card-copy {
+    padding: 18px;
+  }
+
+  .card-copy h3 {
+    margin: 0 0 8px;
+    color: #1f2329;
+    font-size: 18px;
+  }
+
+  .card-copy p {
+    margin: 0;
+    color: #606266;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .tagline {
+    margin-top: 10px;
+    color: #1f6feb;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  @media (max-width: 900px) {
+    .logo-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>DevDock 应用 Logo 方向</h2>
+<p class="subtitle">A 方向已修正：主符号现在是清晰的 D 形停靠标记，小尺寸预览也不会溢出。</p>
+
+<div class="logo-grid">
+  <div class="logo-card card" data-choice="dock" onclick="toggleSelect(this)">
+    <div class="logo-stage">
+      <div>
+        <div class="app-icon dockmark"></div>
+        <div class="mini-row">
+          <div class="mini dockmark"></div>
+          <div class="mini dockmark"></div>
+          <div class="mini dockmark"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>A. Dock 工作台</h3>
+      <p>用清晰的 D 形轮廓和底部停靠条表达“把开发命令停靠到一个本地工具台”。适合做正式桌面应用图标。</p>
+      <div class="tagline">推荐：识别度最高，和 DevDock 名称贴合</div>
+    </div>
+  </div>
+
+  <div class="logo-card card" data-choice="terminal" onclick="toggleSelect(this)">
+    <div class="logo-stage">
+      <div>
+        <div class="app-icon terminalmark"></div>
+        <div class="mini-row">
+          <div class="mini terminalmark"></div>
+          <div class="mini terminalmark"></div>
+          <div class="mini terminalmark"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>B. 命令终端</h3>
+      <p>用终端提示符和输入光标作为核心符号，开发者一眼能懂。优点直接，缺点是同类工具里比较常见。</p>
+      <div class="tagline">适合：强调脚本注册和命令执行</div>
+    </div>
+  </div>
+
+  <div class="logo-card card" data-choice="stack" onclick="toggleSelect(this)">
+    <div class="logo-stage">
+      <div>
+        <div class="app-icon stackmark"><span></span></div>
+        <div class="mini-row">
+          <div class="mini stackmark"><span></span></div>
+          <div class="mini stackmark"><span></span></div>
+          <div class="mini stackmark"><span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>C. 工具栈</h3>
+      <p>用层叠模块表现可扩展工具箱，适合未来加入 ADB 等模块。品牌感稳，但“命令”含义不如前两者直观。</p>
+      <div class="tagline">适合：长期扩展成多模块开发工具箱</div>
+    </div>
+  </div>
+</div>

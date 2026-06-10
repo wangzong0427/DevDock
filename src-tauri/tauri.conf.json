@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "devdock",
-        "width": 800,
-        "height": 600
+        "width": 1180,
+        "height": 720,
+        "minWidth": 1180,
+        "minHeight": 680
       }
     ],
     "security": {
@@ -23,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -31,5 +34,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENGNjM1RDZDNThGM0MxODMKUldTRHdmTlliRjFqeitCLzlHTDQwMVhTVmZmZzhLOFY5Y29ZckJkRkI4R1o0U1lPL0ZDVGpSY3oK",
+      "endpoints": [
+        "https://github.com/wangzong0427/DevDock/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
