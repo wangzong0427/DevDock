@@ -58,7 +58,7 @@ async function updateCargoLock(root, version) {
   const path = join(root, "src-tauri", "Cargo.lock");
   const content = await readFile(path, "utf8");
   const updated = content.replace(
-    /(\[\[package\]\]\nname = "devdock"\nversion = )"[^"]+"/,
+    /(\[\[package\]\]\r?\nname = "devdock"\r?\nversion = )"[^"]+"/,
     `$1"${version}"`,
   );
 
