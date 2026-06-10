@@ -641,6 +641,34 @@ fn run_registered_command_streaming_in_dir(
     bin_dir: &Path,
     mut on_output: impl FnMut(&str, &str),
 ) -> Result<CommandRunResultResponse, String> {
+    run_registered_command_streaming_with_path_entries_in_dir(
+        command_name,
+        bin_dir,
+        environment_path_entries(),
+        |stream, text| on_output(stream, text),
+    )
+}
+
+#[cfg(test)]
+fn run_registered_command_with_path_entries_in_dir(
+    command_name: &str,
+    bin_dir: &Path,
+    path_entries: Vec<PathBuf>,
+) -> Result<CommandRunResultResponse, String> {
+    run_registered_command_streaming_with_path_entries_in_dir(
+        command_name,
+        bin_dir,
+        path_entries,
+        |_stream, _text| {},
+    )
+}
+
+fn run_registered_command_streaming_with_path_entries_in_dir(
+    command_name: &str,
+    bin_dir: &Path,
+    path_entries: Vec<PathBuf>,
+    mut on_output: impl FnMut(&str, &str),
+) -> Result<CommandRunResultResponse, String> {
     validate_command_name(command_name)?;
 
     let entry_path = command_entry_path(bin_dir, command_name);
@@ -652,7 +680,14 @@ fn run_registered_command_streaming_in_dir(
         return Err("不会执行非 DevDock 生成的入口。".to_string());
     }
 
-    let mut child = Command::new(&entry_path)
+    let mut command = Command::new(&entry_path);
+    if !path_entries.is_empty() {
+        let path_value =
+            env::join_paths(path_entries).map_err(|error| format!("PATH 生成失败：{error}"))?;
+        command.env("PATH", path_value);
+    }
+
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1216,6 +1251,34 @@ mod tests {
         assert_eq!(result.exit_code, Some(0));
         assert_eq!(result.stdout, "hello\n");
         assert_eq!(result.stderr, "");
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn runs_registered_command_with_supplied_path_entries() {
+        let temp_dir = unique_test_dir("run-supplied-path");
+        let bin_dir = temp_dir.join("bin");
+        let tool_dir = temp_dir.join("tools");
+        let script_path = temp_dir.join("uses-helper.sh");
+        let helper_path = tool_dir.join("helper-tool");
+        fs::create_dir_all(&tool_dir).unwrap();
+        fs::write(&helper_path, "#!/bin/sh\necho helper-ok\n").unwrap();
+        make_entry_executable(&helper_path).unwrap();
+        fs::write(&script_path, "#!/bin/sh\nhelper-tool\n").unwrap();
+        create_registered_command(&script_path, "uses-helper", &bin_dir, "1700000000")
+            .expect("register command");
+
+        let result = run_registered_command_with_path_entries_in_dir(
+            "uses-helper",
+            &bin_dir,
+            vec![PathBuf::from("/usr/bin"), tool_dir],
+        )
+        .expect("run command");
+
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.stdout, "helper-ok\n");
 
         let _ = fs::remove_dir_all(temp_dir);
     }
